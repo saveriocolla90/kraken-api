@@ -923,5 +923,60 @@ api::result<balances_t> api::balances(balances_cb cb) {
     return pimpl->post(true, "/0/private/Balance", boost::beast::http::verb::post, {}, std::move(cb));
 }
 
+/*************************************************************************************************/
+
+api::result<system_status_t> api::system_status(system_status_cb cb) {
+    return pimpl->post(false, "/0/public/SystemStatus", boost::beast::http::verb::get, {}, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<query_orders_t> api::query_orders(const std::string &txid, query_orders_cb cb) {
+    const impl::init_list_type map = {
+        {"txid", txid.c_str()}
+    };
+
+    return pimpl->post(true, "/0/private/QueryOrders", boost::beast::http::verb::post, map, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<query_trades_t> api::query_trades(const std::string &txid, query_trades_cb cb) {
+    const impl::init_list_type map = {
+        {"txid", txid.c_str()}
+    };
+
+    return pimpl->post(true, "/0/private/QueryTrades", boost::beast::http::verb::post, map, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<open_positions_t> api::open_positions(bool docalcs, open_positions_cb cb) {
+    const impl::init_list_type map = {
+        {"docalcs", docalcs ? "true" : nullptr}
+    };
+
+    return pimpl->post(true, "/0/private/OpenPositions", boost::beast::http::verb::post, map, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<cancel_order_t> api::cancel_all(cancel_all_cb cb) {
+    return pimpl->post(true, "/0/private/CancelAll", boost::beast::http::verb::post, {}, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<cancel_all_after_t> api::cancel_all_after(std::size_t timeout, cancel_all_after_cb cb) {
+    // timeout=0 is meaningful (disables the switch), so pass it as a string to
+    // ensure it is always sent (the param map omits zero-valued integers).
+    const std::string timeout_str = std::to_string(timeout);
+    const impl::init_list_type map = {
+        {"timeout", timeout_str.c_str()}
+    };
+
+    return pimpl->post(true, "/0/private/CancelAllOrdersAfter", boost::beast::http::verb::post, map, std::move(cb));
+}
+
 } // ns rest
 } // ns binapi

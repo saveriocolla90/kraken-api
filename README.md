@@ -31,6 +31,7 @@ argument is your **base64-encoded private key** (as shown in the Kraken UI).
 # REST API
 ## Public (market data)
 - [Server time](https://docs.kraken.com/rest/#tag/Market-Data/operation/getServerTime) -> `api::server_time()`
+- [System status](https://docs.kraken.com/rest/#tag/Market-Data/operation/getSystemStatus) -> `api::system_status()`
 - [Ticker](https://docs.kraken.com/rest/#tag/Market-Data/operation/getTickerInformation) -> `api::ticker(pair)` / `api::tickers()`
 - [Asset pairs](https://docs.kraken.com/rest/#tag/Market-Data/operation/getTradableAssetPairs) -> `api::asset_pairs()` / `api::asset_pairs(pair)`
 - [Order book](https://docs.kraken.com/rest/#tag/Market-Data/operation/getOrderBook) -> `api::order_book(pair, count)`
@@ -41,11 +42,18 @@ argument is your **base64-encoded private key** (as shown in the Kraken UI).
 - [Account balance](https://docs.kraken.com/rest/#tag/Account-Data/operation/getAccountBalance) -> `api::balances()`
 - [Open orders](https://docs.kraken.com/rest/#tag/Account-Data/operation/getOpenOrders) -> `api::open_orders()`
 - [Closed orders](https://docs.kraken.com/rest/#tag/Account-Data/operation/getClosedOrders) -> `api::closed_orders()`
+- [Query orders](https://docs.kraken.com/rest/#tag/Account-Data/operation/getOrdersInfo) -> `api::query_orders(txid)`
 - [Trade history](https://docs.kraken.com/rest/#tag/Account-Data/operation/getTradeHistory) -> `api::trades_history()`
+- [Query trades](https://docs.kraken.com/rest/#tag/Account-Data/operation/getTradesInfo) -> `api::query_trades(txid)`
+- [Open positions](https://docs.kraken.com/rest/#tag/Account-Data/operation/getOpenPositions) -> `api::open_positions(docalcs)`
 - [Add order](https://docs.kraken.com/rest/#tag/Trading/operation/addOrder) -> `api::add_order(pair, type, ordertype, volume, price, validate)`
 - [Cancel order](https://docs.kraken.com/rest/#tag/Trading/operation/cancelOrder) -> `api::cancel_order(txid)`
+- [Cancel all orders](https://docs.kraken.com/rest/#tag/Trading/operation/cancelAllOrders) -> `api::cancel_all()`
+- [Cancel all orders after](https://docs.kraken.com/rest/#tag/Trading/operation/cancelAllOrdersAfter) -> `api::cancel_all_after(timeout)`
 
 `add_order(...)` accepts `validate = true` to validate an order without placing it.
+`query_orders(txid)` / `query_trades(txid)` accept a comma-separated list of ids.
+`cancel_all_after(timeout)` is a dead-man's switch (seconds; `0` disables it).
 
 # Building
 ```sh

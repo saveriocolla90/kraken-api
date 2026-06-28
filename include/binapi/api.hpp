@@ -153,6 +153,42 @@ struct api {
     result<trades_history_t>
     trades_history(trades_history_cb cb = {});
 
+    // https://docs.kraken.com/rest/#tag/Market-Data/operation/getSystemStatus
+    // Kraken `public/SystemStatus` — exchange availability.
+    using system_status_cb = std::function<bool(const char *fl, int ec, std::string errmsg, system_status_t res)>;
+    result<system_status_t>
+    system_status(system_status_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Account-Data/operation/getOrdersInfo
+    // Kraken `private/QueryOrders` — query specific orders by txid (comma-separated, up to 50).
+    using query_orders_cb = std::function<bool(const char *fl, int ec, std::string errmsg, query_orders_t res)>;
+    result<query_orders_t>
+    query_orders(const std::string &txid, query_orders_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Account-Data/operation/getTradesInfo
+    // Kraken `private/QueryTrades` — query specific trades by txid (comma-separated, up to 20).
+    using query_trades_cb = std::function<bool(const char *fl, int ec, std::string errmsg, query_trades_t res)>;
+    result<query_trades_t>
+    query_trades(const std::string &txid, query_trades_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Account-Data/operation/getOpenPositions
+    // Kraken `private/OpenPositions` — open margin positions (docalcs adds value/net P&L).
+    using open_positions_cb = std::function<bool(const char *fl, int ec, std::string errmsg, open_positions_t res)>;
+    result<open_positions_t>
+    open_positions(bool docalcs = false, open_positions_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Trading/operation/cancelAllOrders
+    // Kraken `private/CancelAll` — cancel all open orders.
+    using cancel_all_cb = std::function<bool(const char *fl, int ec, std::string errmsg, cancel_order_t res)>;
+    result<cancel_order_t>
+    cancel_all(cancel_all_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Trading/operation/cancelAllOrdersAfter
+    // Kraken `private/CancelAllOrdersAfter` — dead-man's switch; timeout in seconds (0 disables).
+    using cancel_all_after_cb = std::function<bool(const char *fl, int ec, std::string errmsg, cancel_all_after_t res)>;
+    result<cancel_all_after_t>
+    cancel_all_after(std::size_t timeout, cancel_all_after_cb cb = {});
+
 private:
     struct impl;
     std::unique_ptr<impl> pimpl;

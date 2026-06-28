@@ -287,6 +287,77 @@ struct recent_trades_t {
     friend std::ostream &operator<<(std::ostream &os, const recent_trades_t &f);
 };
 
+// https://docs.kraken.com/rest/#tag/Market-Data/operation/getSystemStatus
+// Kraken `public/SystemStatus`: {"error":[],"result":{"status":"online","timestamp":"..."}}
+struct system_status_t {
+    std::string status;      // online / maintenance / cancel_only / post_only
+    std::string timestamp;   // RFC3339 server time
+
+    static system_status_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const system_status_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Account-Data/operation/getOrdersInfo
+// Kraken `private/QueryOrders`: result is txid -> order (same shape as kraken_order_t).
+struct query_orders_t {
+    std::map<std::string, kraken_order_t> orders; // txid -> order
+
+    static query_orders_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const query_orders_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Account-Data/operation/getTradesInfo
+// Kraken `private/QueryTrades`: result is txid -> trade (same shape as trades_history trade).
+struct query_trades_t {
+    std::map<std::string, trades_history_t::trade_t> trades; // txid -> trade
+
+    static query_trades_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const query_trades_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Account-Data/operation/getOpenPositions
+// Kraken `private/OpenPositions`: result is txid -> position object.
+struct open_positions_t {
+    struct position_t {
+        std::string txid;        // result key (position transaction id)
+        std::string ordertxid;   // order responsible for the position
+        std::string posstatus;   // open / closed
+        std::string pair;
+        double time;             // fractional unix seconds
+        std::string type;        // buy / sell
+        std::string ordertype;
+        double_type cost;
+        double_type fee;
+        double_type vol;         // position volume
+        double_type vol_closed;  // closed volume
+        double_type margin;
+        double_type value;       // current value (only with docalcs)
+        double_type net;         // unrealised P/L (only with docalcs; may be negative)
+        std::string terms;
+        std::string rollovertm;
+        std::string misc;
+        std::string oflags;
+
+        static position_t construct(const std::string &txid, const flatjson::fjson &json);
+        friend std::ostream &operator<<(std::ostream &os, const position_t &f);
+    };
+
+    std::map<std::string, position_t> positions; // txid -> position
+
+    static open_positions_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const open_positions_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Trading/operation/cancelAllOrdersAfter
+// Kraken `private/CancelAllOrdersAfter`: {"currentTime":"...","triggerTime":"..."}
+struct cancel_all_after_t {
+    std::string currentTime;   // server time when the request was processed
+    std::string triggerTime;   // when orders will be cancelled (0 if disabled)
+
+    static cancel_all_after_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const cancel_all_after_t &f);
+};
+
 /*************************************************************************************************/
 
 } // ns rest
