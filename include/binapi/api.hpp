@@ -185,6 +185,31 @@ struct api {
     result<asset_pairs_t>
     asset_pairs(const char *pair, asset_pairs_cb cb = {});
 
+    // https://docs.kraken.com/rest/#tag/Market-Data/operation/getOrderBook
+    // Kraken `public/Depth` — order book for a pair (count limits depth per side).
+    using order_book_cb = std::function<bool(const char *fl, int ec, std::string errmsg, order_book_t res)>;
+    result<order_book_t>
+    order_book(const std::string &pair, std::size_t count = 0, order_book_cb cb = {}) { return order_book(pair.c_str(), count, std::move(cb)); }
+    result<order_book_t>
+    order_book(const char *pair, std::size_t count = 0, order_book_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Market-Data/operation/getOHLCData
+    // Kraken `public/OHLC` — candles for a pair. interval is in minutes
+    // (1,5,15,30,60,240,1440,10080,21600); since is an optional cursor.
+    using ohlc_cb = std::function<bool(const char *fl, int ec, std::string errmsg, ohlc_t res)>;
+    result<ohlc_t>
+    ohlc(const std::string &pair, std::size_t interval, std::size_t since = 0, ohlc_cb cb = {}) { return ohlc(pair.c_str(), interval, since, std::move(cb)); }
+    result<ohlc_t>
+    ohlc(const char *pair, std::size_t interval, std::size_t since = 0, ohlc_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Market-Data/operation/getRecentTrades
+    // Kraken `public/Trades` — recent trades for a pair; since is an optional cursor.
+    using recent_trades_cb = std::function<bool(const char *fl, int ec, std::string errmsg, recent_trades_t res)>;
+    result<recent_trades_t>
+    recent_trades(const std::string &pair, const std::string &since = std::string{}, recent_trades_cb cb = {}) { return recent_trades(pair.c_str(), since.empty() ? nullptr : since.c_str(), std::move(cb)); }
+    result<recent_trades_t>
+    recent_trades(const char *pair, const char *since = nullptr, recent_trades_cb cb = {});
+
     // https://docs.kraken.com/rest/#tag/Trading/operation/addOrder
     // Kraken `private/AddOrder`. Pass validate=true to only validate (no execution).
     using add_order_cb = std::function<bool(const char *fl, int ec, std::string errmsg, add_order_t res)>;

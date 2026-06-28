@@ -839,6 +839,40 @@ api::result<asset_pairs_t> api::asset_pairs(const char *pair, asset_pairs_cb cb)
 
 /*************************************************************************************************/
 
+api::result<order_book_t> api::order_book(const char *pair, std::size_t count, order_book_cb cb) {
+    const impl::init_list_type map = {
+         {"pair", pair}
+        ,{"count", count}
+    };
+
+    return pimpl->post(false, "/0/public/Depth", boost::beast::http::verb::get, map, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<ohlc_t> api::ohlc(const char *pair, std::size_t interval, std::size_t since, ohlc_cb cb) {
+    const impl::init_list_type map = {
+         {"pair", pair}
+        ,{"interval", interval}
+        ,{"since", since}
+    };
+
+    return pimpl->post(false, "/0/public/OHLC", boost::beast::http::verb::get, map, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<recent_trades_t> api::recent_trades(const char *pair, const char *since, recent_trades_cb cb) {
+    const impl::init_list_type map = {
+         {"pair", pair}
+        ,{"since", since}
+    };
+
+    return pimpl->post(false, "/0/public/Trades", boost::beast::http::verb::get, map, std::move(cb));
+}
+
+/*************************************************************************************************/
+
 api::result<add_order_t> api::add_order(
      const std::string &pair
     ,const std::string &type

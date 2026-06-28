@@ -891,6 +891,197 @@ std::ostream &operator<<(std::ostream &os, const trades_history_t &o) {
 
 /*************************************************************************************************/
 
+// Kraken keys market-data results by pair name and may append a "last" cursor;
+// the pair key is the one that isn't "last".
+static std::string find_pair_key(const flatjson::fjson &result) {
+    const auto keys = result.get_keys();
+    for ( const auto &k : keys ) {
+        const std::string key{k.data(), k.size()};
+        if ( key != "last" ) {
+            return key;
+        }
+    }
+
+    return {};
+}
+
+order_book_t::level_t __parse_level(const flatjson::fjson &l) {
+    order_book_t::level_t lvl{};
+    lvl.price.assign(l.at(0u).to_string());
+    lvl.volume.assign(l.at(1u).to_string());
+    lvl.timestamp = l.at(2u).to<std::size_t>();
+
+    return lvl;
+}
+
+std::ostream &operator<<(std::ostream &os, const order_book_t::level_t &o) {
+    os
+    << "[\"" << o.price << "\",\"" << o.volume << "\"," << o.timestamp << "]";
+
+    return os;
+}
+
+order_book_t order_book_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+
+    order_book_t res{};
+    const auto result = json.at("result");
+    res.pair = find_pair_key(result);
+
+    const auto book = result.at(res.pair.c_str());
+    const auto asks = book.at("asks");
+    for ( auto idx = 0u; idx < asks.size(); ++idx ) {
+        res.asks.push_back(__parse_level(asks.at(idx)));
+    }
+    const auto bids = book.at("bids");
+    for ( auto idx = 0u; idx < bids.size(); ++idx ) {
+        res.bids.push_back(__parse_level(bids.at(idx)));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const order_book_t &o) {
+    os
+    << "{"
+    << "\"pair\":\"" << o.pair << "\","
+    << "\"asks\":[";
+    for ( auto it = o.asks.begin(); it != o.asks.end(); ++it ) {
+        os << *it;
+        if ( std::next(it) != o.asks.end() ) { os << ","; }
+    }
+    os << "],\"bids\":[";
+    for ( auto it = o.bids.begin(); it != o.bids.end(); ++it ) {
+        os << *it;
+        if ( std::next(it) != o.bids.end() ) { os << ","; }
+    }
+    os << "]}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+std::ostream &operator<<(std::ostream &os, const ohlc_t::candle_t &o) {
+    os
+    << "{"
+    << "\"time\":" << o.time << ","
+    << "\"open\":\"" << o.open << "\","
+    << "\"high\":\"" << o.high << "\","
+    << "\"low\":\"" << o.low << "\","
+    << "\"close\":\"" << o.close << "\","
+    << "\"vwap\":\"" << o.vwap << "\","
+    << "\"volume\":\"" << o.volume << "\","
+    << "\"count\":" << o.count
+    << "}";
+
+    return os;
+}
+
+ohlc_t ohlc_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+
+    ohlc_t res{};
+    const auto result = json.at("result");
+    if ( result.contains("last") ) {
+        res.last = result.at("last").to<std::size_t>();
+    }
+    res.pair = find_pair_key(result);
+
+    const auto arr = result.at(res.pair.c_str());
+    for ( auto idx = 0u; idx < arr.size(); ++idx ) {
+        const auto c = arr.at(idx);
+        ohlc_t::candle_t cd{};
+        cd.time = c.at(0u).to<std::size_t>();
+        cd.open.assign(c.at(1u).to_string());
+        cd.high.assign(c.at(2u).to_string());
+        cd.low.assign(c.at(3u).to_string());
+        cd.close.assign(c.at(4u).to_string());
+        cd.vwap.assign(c.at(5u).to_string());
+        cd.volume.assign(c.at(6u).to_string());
+        cd.count = c.at(7u).to<std::size_t>();
+        res.candles.push_back(std::move(cd));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const ohlc_t &o) {
+    os
+    << "{"
+    << "\"pair\":\"" << o.pair << "\","
+    << "\"last\":" << o.last << ","
+    << "\"candles\":[";
+    for ( auto it = o.candles.begin(); it != o.candles.end(); ++it ) {
+        os << *it;
+        if ( std::next(it) != o.candles.end() ) { os << ","; }
+    }
+    os << "]}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+std::ostream &operator<<(std::ostream &os, const recent_trades_t::trade_t &o) {
+    os
+    << "{"
+    << "\"price\":\"" << o.price << "\","
+    << "\"volume\":\"" << o.volume << "\","
+    << "\"time\":" << fmt_seconds(o.time) << ","
+    << "\"side\":\"" << o.side << "\","
+    << "\"type\":\"" << o.type << "\","
+    << "\"misc\":\"" << o.misc << "\","
+    << "\"trade_id\":" << o.trade_id
+    << "}";
+
+    return os;
+}
+
+recent_trades_t recent_trades_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+
+    recent_trades_t res{};
+    const auto result = json.at("result");
+    if ( result.contains("last") ) {
+        res.last = result.at("last").to_string();
+    }
+    res.pair = find_pair_key(result);
+
+    const auto arr = result.at(res.pair.c_str());
+    for ( auto idx = 0u; idx < arr.size(); ++idx ) {
+        const auto t = arr.at(idx);
+        recent_trades_t::trade_t tr{};
+        tr.price.assign(t.at(0u).to_string());
+        tr.volume.assign(t.at(1u).to_string());
+        tr.time     = t.at(2u).to_double();
+        tr.side     = t.at(3u).to_string();
+        tr.type     = t.at(4u).to_string();
+        tr.misc     = t.at(5u).to_string();
+        tr.trade_id = t.at(6u).to<std::size_t>();
+        res.trades.push_back(std::move(tr));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const recent_trades_t &o) {
+    os
+    << "{"
+    << "\"pair\":\"" << o.pair << "\","
+    << "\"last\":\"" << o.last << "\","
+    << "\"trades\":[";
+    for ( auto it = o.trades.begin(); it != o.trades.end(); ++it ) {
+        os << *it;
+        if ( std::next(it) != o.trades.end() ) { os << ","; }
+    }
+    os << "]}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
 std::ostream& operator<<(std::ostream &os, const exchange_info_t::rate_limit_t &o) {
     os
     << "{"

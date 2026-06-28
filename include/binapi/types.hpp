@@ -331,6 +331,72 @@ struct trades_history_t {
     friend std::ostream &operator<<(std::ostream &os, const trades_history_t &f);
 };
 
+// https://docs.kraken.com/rest/#tag/Market-Data/operation/getOrderBook
+// Kraken `public/Depth`: result is pairname -> {"asks":[[price,vol,tm],...],"bids":[...]}
+struct order_book_t {
+    struct level_t {
+        double_type price;
+        double_type volume;
+        std::size_t timestamp;   // unix seconds
+
+        friend std::ostream &operator<<(std::ostream &os, const level_t &f);
+    };
+
+    std::string pair;            // result key, e.g. "XXBTZUSD"
+    std::vector<level_t> asks;
+    std::vector<level_t> bids;
+
+    static order_book_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const order_book_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Market-Data/operation/getOHLCData
+// Kraken `public/OHLC`: result is {pairname:[[time,o,h,l,c,vwap,vol,count],...],"last":id}
+struct ohlc_t {
+    struct candle_t {
+        std::size_t time;        // unix seconds (interval start)
+        double_type open;
+        double_type high;
+        double_type low;
+        double_type close;
+        double_type vwap;
+        double_type volume;
+        std::size_t count;       // number of trades
+
+        friend std::ostream &operator<<(std::ostream &os, const candle_t &f);
+    };
+
+    std::string pair;            // result key, e.g. "XXBTZUSD"
+    std::vector<candle_t> candles;
+    std::size_t last;            // id to pass as `since` for the next request
+
+    static ohlc_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const ohlc_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Market-Data/operation/getRecentTrades
+// Kraken `public/Trades`: result is {pairname:[[price,vol,time,side,type,misc,id],...],"last":id}
+struct recent_trades_t {
+    struct trade_t {
+        double_type price;
+        double_type volume;
+        double time;             // fractional unix seconds
+        std::string side;        // "b" (buy) / "s" (sell)
+        std::string type;        // "m" (market) / "l" (limit)
+        std::string misc;
+        std::size_t trade_id;
+
+        friend std::ostream &operator<<(std::ostream &os, const trade_t &f);
+    };
+
+    std::string pair;            // result key, e.g. "XXBTZUSD"
+    std::vector<trade_t> trades;
+    std::string last;            // nanosecond id (string) to page from
+
+    static recent_trades_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const recent_trades_t &f);
+};
+
 // https://github.com/binance-exchange/binance-official-api-docs/blob/master/rest-api.md#exchange-information
 struct exchange_info_t {
     std::string timezone;
