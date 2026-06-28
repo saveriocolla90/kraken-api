@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.10)
 project(websockets)
 
 set(CMAKE_CXX_STANDARD 14)
@@ -29,8 +29,6 @@ set(BINAPI_HEADERS
     binapi/errors.hpp
     binapi/invoker.hpp
     binapi/message.hpp
-    binapi/pairslist.hpp
-    binapi/reports.hpp
     binapi/tools.hpp
     binapi/types.hpp
     binapi/websocket.hpp
@@ -40,8 +38,6 @@ set(BINAPI_SOURCES
     ../../src/api.cpp
     ../../src/enums.cpp
     ../../src/errors.cpp
-    ../../src/pairslist.cpp
-    ../../src/reports.cpp
     ../../src/tools.cpp
     ../../src/types.cpp
     ../../src/websocket.cpp

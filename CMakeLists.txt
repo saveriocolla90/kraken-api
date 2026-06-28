@@ -30,8 +30,6 @@ set(BINAPI_HEADERS
     include/binapi/errors.hpp
     include/binapi/invoker.hpp
     include/binapi/message.hpp
-    include/binapi/pairslist.hpp
-    include/binapi/reports.hpp
     include/binapi/tools.hpp
     include/binapi/types.hpp
     include/binapi/websocket.hpp
@@ -41,8 +39,6 @@ set(BINAPI_SOURCES
     src/api.cpp
     src/enums.cpp
     src/errors.cpp
-    src/pairslist.cpp
-    src/reports.cpp
     src/tools.cpp
     src/types.cpp
     src/websocket.cpp

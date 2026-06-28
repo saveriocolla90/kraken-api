@@ -24,8 +24,6 @@ set(BINAPI_SOURCES
     ../../src/errors.cpp
     ../../src/api.cpp
     ../../src/enums.cpp
-    ../../src/pairslist.cpp
-    ../../src/reports.cpp
     ../../src/tools.cpp
     ../../src/types.cpp
     ../../src/websocket.cpp

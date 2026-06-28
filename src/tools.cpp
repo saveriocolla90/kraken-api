@@ -10,12 +10,13 @@
 // ----------------------------------------------------------------------------
 
 #include <binapi/tools.hpp>
-#include <binapi/pairslist.hpp>
 
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/trim.hpp>
+
+#include <cstring>
 
 namespace binapi {
 
