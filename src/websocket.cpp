@@ -125,13 +125,13 @@ private:
         }
 
         boost::asio::async_connect(
-             m_ws.next_layer().next_layer()
-            ,res.begin()
-            ,res.end()
+            m_ws.next_layer().next_layer()
+            ,res
             ,[this, cb=std::move(cb), holder=std::move(holder)]
-             (boost::system::error_code ec, boost::asio::ip::tcp::resolver::iterator) mutable {
-                if ( ec ) {
-                    if ( !m_stop_requested ) { __BINAPI_CB_ON_ERROR(cb, ec); }
+            (const boost::system::error_code& ec, auto /*it_or_ep*/) mutable
+            {
+                if (ec) {
+                    if (!m_stop_requested) { __BINAPI_CB_ON_ERROR(cb, ec); }
                 } else {
                     on_connected(std::move(cb), std::move(holder));
                 }

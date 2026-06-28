@@ -15,6 +15,7 @@
 #include "types.hpp"
 #include "enums.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <functional>
 
@@ -148,6 +149,10 @@ struct api {
     klines(const std::string &symbol, const std::string &interval, std::size_t limit, klines_cb cb = {}) { return klines(symbol.c_str(), interval.c_str(), limit, std::move(cb)); }
     result<klines_t>
     klines(const char *symbol, const char *interval, std::size_t limit, klines_cb cb = {});
+    result<klines_t>
+    historical_klines(const std::string &symbol, const std::string &interval, const uint64_t& start, const uint64_t& stop, std::size_t limit, klines_cb cb = {}) { return historical_klines(symbol.c_str(), interval.c_str(), start, stop, limit, std::move(cb)); }
+    result<klines_t>
+    historical_klines(const char *symbol, const char *interval, const uint64_t& start, const uint64_t& stop, std::size_t limit, klines_cb cb = {});
 
     // https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#account-information-user_data
     using account_info_cb = std::function<bool(const char *fl, int ec, std::string errmsg, account_info_t res)>;

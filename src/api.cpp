@@ -839,6 +839,21 @@ api::result<klines_t> api::klines(const char *symbol, const char *interval, std:
 }
 
 /*************************************************************************************************/
+
+api::result<klines_t> api::historical_klines(const char *symbol, const char *interval, const uint64_t &start, const uint64_t &stop, std::size_t limit, klines_cb cb)
+{
+    const impl::init_list_type map = {
+         {"symbol", symbol}
+        ,{"limit", limit}
+        ,{"interval", interval}
+        ,{"startTime", start}
+        ,{"endTime", stop}
+    };
+
+    return pimpl->post(false, "/api/v3/klines", boost::beast::http::verb::get, map, std::move(cb));
+} 
+
+/*************************************************************************************************/
 /*************************************************************************************************/
 /*************************************************************************************************/
 

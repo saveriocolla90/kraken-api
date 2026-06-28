@@ -15,6 +15,7 @@
 #include <iosfwd>
 #include <string>
 #include <vector>
+#include <cstdint>
 #include <functional>
 
 namespace binapi {
