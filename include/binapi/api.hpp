@@ -165,6 +165,26 @@ struct api {
     result<balances_t>
     balances(balances_cb cb = {});
 
+    // https://docs.kraken.com/rest/#tag/Market-Data/operation/getTickerInformation
+    // Kraken `public/Ticker` — ticker for one pair, or all pairs when omitted.
+    using tickers_cb = std::function<bool(const char *fl, int ec, std::string errmsg, tickers_t res)>;
+    result<tickers_t>
+    ticker(const std::string &pair, tickers_cb cb = {}) { return ticker(pair.c_str(), std::move(cb)); }
+    result<tickers_t>
+    ticker(const char *pair, tickers_cb cb = {});
+    result<tickers_t>
+    tickers(tickers_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Market-Data/operation/getTradableAssetPairs
+    // Kraken `public/AssetPairs` — tradable pair metadata (one pair, or all).
+    using asset_pairs_cb = std::function<bool(const char *fl, int ec, std::string errmsg, asset_pairs_t res)>;
+    result<asset_pairs_t>
+    asset_pairs(asset_pairs_cb cb = {});
+    result<asset_pairs_t>
+    asset_pairs(const std::string &pair, asset_pairs_cb cb = {}) { return asset_pairs(pair.c_str(), std::move(cb)); }
+    result<asset_pairs_t>
+    asset_pairs(const char *pair, asset_pairs_cb cb = {});
+
     // https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#query-order-user_data
     using order_info_cb = std::function<bool(const char *fl, int ec, std::string errmsg, order_info_t res)>;
     result<order_info_t>

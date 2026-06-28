@@ -41,9 +41,11 @@ struct ping_t {
     friend std::ostream &operator<<(std::ostream &os, const ping_t &f);
 };
 
-// https://github.com/binance-exchange/binance-official-api-docs/blob/master/rest-api.md#check-server-time
+// https://docs.kraken.com/rest/#tag/Market-Data/operation/getServerTime
+// Kraken `public/Time`: {"error":[],"result":{"unixtime":1616336594,"rfc1123":"..."}}
 struct server_time_t {
-    std::size_t serverTime;
+    std::size_t unixtime;   // seconds since epoch
+    std::string rfc1123;    // human-readable server time
 
     static server_time_t construct(const flatjson::fjson &json);
     friend std::ostream &operator<<(std::ostream &os, const server_time_t &f);
@@ -163,6 +165,68 @@ struct balances_t {
 
     static balances_t construct(const flatjson::fjson &json);
     friend std::ostream &operator<<(std::ostream &os, const balances_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Market-Data/operation/getTickerInformation
+// Kraken `public/Ticker`: result is pairname -> ticker object, where each value is
+//   {"a":[ask,wlv,lv],"b":[bid,wlv,lv],"c":[last,lv],"v":[today,24h],"p":[today,24h],
+//    "t":[today,24h],"l":[today,24h],"h":[today,24h],"o":open}
+struct tickers_t {
+    struct ticker_t {
+        std::string pair;          // result key, e.g. "XXBTZUSD"
+        double_type ask;           // a[0]
+        double_type bid;           // b[0]
+        double_type last;          // c[0] last trade price
+        double_type volume_today;  // v[0]
+        double_type volume_24h;    // v[1]
+        double_type vwap_today;    // p[0]
+        double_type vwap_24h;      // p[1]
+        std::size_t trades_today;  // t[0]
+        std::size_t trades_24h;    // t[1]
+        double_type low_today;     // l[0]
+        double_type low_24h;       // l[1]
+        double_type high_today;    // h[0]
+        double_type high_24h;      // h[1]
+        double_type open;          // o
+
+        static ticker_t construct(const std::string &pair, const flatjson::fjson &json);
+        friend std::ostream &operator<<(std::ostream &os, const ticker_t &f);
+    };
+
+    std::map<std::string, ticker_t> tickers;
+
+    bool has(const std::string &pair) const { return tickers.count(pair) != 0; }
+    const ticker_t& get(const std::string &pair) const;
+
+    static tickers_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const tickers_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Market-Data/operation/getTradableAssetPairs
+// Kraken `public/AssetPairs`: result is pairname -> pair metadata object.
+struct asset_pairs_t {
+    struct asset_pair_t {
+        std::string name;            // result key, e.g. "XXBTZUSD"
+        std::string altname;         // e.g. "XBTUSD"
+        std::string wsname;          // e.g. "XBT/USD" (may be absent)
+        std::string base;            // base asset id, e.g. "XXBT"
+        std::string quote;           // quote asset id, e.g. "ZUSD"
+        std::size_t pair_decimals;   // price scale
+        std::size_t lot_decimals;    // volume scale
+        double_type ordermin;        // minimum order volume (may be absent)
+        std::string status;          // "online", "cancel_only", ...
+
+        static asset_pair_t construct(const std::string &name, const flatjson::fjson &json);
+        friend std::ostream &operator<<(std::ostream &os, const asset_pair_t &f);
+    };
+
+    std::map<std::string, asset_pair_t> pairs;
+
+    bool has(const std::string &name) const { return pairs.count(name) != 0; }
+    const asset_pair_t& get(const std::string &name) const;
+
+    static asset_pairs_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const asset_pairs_t &f);
 };
 
 // https://github.com/binance-exchange/binance-official-api-docs/blob/master/rest-api.md#exchange-information

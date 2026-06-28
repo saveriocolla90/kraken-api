@@ -81,7 +81,9 @@ server_time_t server_time_t::construct(const flatjson::fjson &json) {
     assert(json.is_valid());
 
     server_time_t res{};
-    __BINAPI_GET(serverTime);
+    const auto result = json.at("result");
+    __BINAPI_GET2(res, unixtime, result);
+    __BINAPI_GET2(res, rfc1123, result);
 
     return res;
 }
@@ -89,7 +91,8 @@ server_time_t server_time_t::construct(const flatjson::fjson &json) {
 std::ostream &operator<<(std::ostream &os, const server_time_t &o) {
     os
     << "{"
-    << "\"serverTime\":" << o.serverTime
+    << "\"unixtime\":" << o.unixtime << ","
+    << "\"rfc1123\":\"" << o.rfc1123 << "\""
     << "}";
 
     return os;
@@ -416,6 +419,185 @@ std::ostream &operator<<(std::ostream &os, const balances_t &o) {
         }
     }
     os << "}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+// reads a double_type from an array element, e.g. ticker "a"[0]
+static double_type __get_arr_double(const flatjson::fjson &arr, std::size_t idx) {
+    double_type v{};
+    v.assign(arr.at(idx).to_string());
+
+    return v;
+}
+
+tickers_t::ticker_t
+tickers_t::ticker_t::construct(const std::string &pair, const flatjson::fjson &json) {
+    assert(json.is_valid());
+    assert(json.is_object());
+
+    tickers_t::ticker_t res{};
+    res.pair = pair;
+
+    const auto a = json.at("a");
+    const auto b = json.at("b");
+    const auto c = json.at("c");
+    const auto v = json.at("v");
+    const auto p = json.at("p");
+    const auto t = json.at("t");
+    const auto l = json.at("l");
+    const auto h = json.at("h");
+
+    res.ask          = __get_arr_double(a, 0u);
+    res.bid          = __get_arr_double(b, 0u);
+    res.last         = __get_arr_double(c, 0u);
+    res.volume_today = __get_arr_double(v, 0u);
+    res.volume_24h   = __get_arr_double(v, 1u);
+    res.vwap_today   = __get_arr_double(p, 0u);
+    res.vwap_24h     = __get_arr_double(p, 1u);
+    res.trades_today = t.at(0u).to<std::size_t>();
+    res.trades_24h   = t.at(1u).to<std::size_t>();
+    res.low_today    = __get_arr_double(l, 0u);
+    res.low_24h      = __get_arr_double(l, 1u);
+    res.high_today   = __get_arr_double(h, 0u);
+    res.high_24h     = __get_arr_double(h, 1u);
+    res.open.assign(json.at("o").to_string());
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const tickers_t::ticker_t &o) {
+    os
+    << "{"
+    << "\"pair\":\"" << o.pair << "\","
+    << "\"ask\":\"" << o.ask << "\","
+    << "\"bid\":\"" << o.bid << "\","
+    << "\"last\":\"" << o.last << "\","
+    << "\"volume_today\":\"" << o.volume_today << "\","
+    << "\"volume_24h\":\"" << o.volume_24h << "\","
+    << "\"vwap_today\":\"" << o.vwap_today << "\","
+    << "\"vwap_24h\":\"" << o.vwap_24h << "\","
+    << "\"trades_today\":" << o.trades_today << ","
+    << "\"trades_24h\":" << o.trades_24h << ","
+    << "\"low_today\":\"" << o.low_today << "\","
+    << "\"low_24h\":\"" << o.low_24h << "\","
+    << "\"high_today\":\"" << o.high_today << "\","
+    << "\"high_24h\":\"" << o.high_24h << "\","
+    << "\"open\":\"" << o.open << "\""
+    << "}";
+
+    return os;
+}
+
+const tickers_t::ticker_t& tickers_t::get(const std::string &pair) const {
+    static const ticker_t empty{};
+    const auto it = tickers.find(pair);
+
+    return it == tickers.end() ? empty : it->second;
+}
+
+tickers_t tickers_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+    assert(json.is_object());
+
+    tickers_t res{};
+    const auto result = json.at("result");
+    const auto keys = result.get_keys();
+    for ( const auto &k : keys ) {
+        const std::string pair{k.data(), k.size()};
+        auto item = tickers_t::ticker_t::construct(pair, result.at(pair.c_str()));
+        res.tickers.emplace(pair, std::move(item));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const tickers_t &o) {
+    os << "[";
+    for ( auto it = o.tickers.begin(); it != o.tickers.end(); ++it ) {
+        os << it->second;
+        if ( std::next(it) != o.tickers.end() ) {
+            os << ",";
+        }
+    }
+    os << "]";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+asset_pairs_t::asset_pair_t
+asset_pairs_t::asset_pair_t::construct(const std::string &name, const flatjson::fjson &json) {
+    assert(json.is_valid());
+    assert(json.is_object());
+
+    asset_pairs_t::asset_pair_t res{};
+    res.name = name;
+
+    __BINAPI_GET2(res, altname, json);
+    if ( json.contains("wsname") ) { __BINAPI_GET2(res, wsname, json); }
+    __BINAPI_GET2(res, base, json);
+    __BINAPI_GET2(res, quote, json);
+    __BINAPI_GET2(res, pair_decimals, json);
+    __BINAPI_GET2(res, lot_decimals, json);
+    if ( json.contains("ordermin") ) { __BINAPI_GET2(res, ordermin, json); }
+    if ( json.contains("status") ) { __BINAPI_GET2(res, status, json); }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const asset_pairs_t::asset_pair_t &o) {
+    os
+    << "{"
+    << "\"name\":\"" << o.name << "\","
+    << "\"altname\":\"" << o.altname << "\","
+    << "\"wsname\":\"" << o.wsname << "\","
+    << "\"base\":\"" << o.base << "\","
+    << "\"quote\":\"" << o.quote << "\","
+    << "\"pair_decimals\":" << o.pair_decimals << ","
+    << "\"lot_decimals\":" << o.lot_decimals << ","
+    << "\"ordermin\":\"" << o.ordermin << "\","
+    << "\"status\":\"" << o.status << "\""
+    << "}";
+
+    return os;
+}
+
+const asset_pairs_t::asset_pair_t& asset_pairs_t::get(const std::string &name) const {
+    static const asset_pair_t empty{};
+    const auto it = pairs.find(name);
+
+    return it == pairs.end() ? empty : it->second;
+}
+
+asset_pairs_t asset_pairs_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+    assert(json.is_object());
+
+    asset_pairs_t res{};
+    const auto result = json.at("result");
+    const auto keys = result.get_keys();
+    for ( const auto &k : keys ) {
+        const std::string name{k.data(), k.size()};
+        auto item = asset_pairs_t::asset_pair_t::construct(name, result.at(name.c_str()));
+        res.pairs.emplace(name, std::move(item));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const asset_pairs_t &o) {
+    os << "[";
+    for ( auto it = o.pairs.begin(); it != o.pairs.end(); ++it ) {
+        os << it->second;
+        if ( std::next(it) != o.pairs.end() ) {
+            os << ",";
+        }
+    }
+    os << "]";
 
     return os;
 }

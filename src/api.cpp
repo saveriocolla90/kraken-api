@@ -806,7 +806,35 @@ api::result<ping_t> api::ping(ping_cb cb) {
 /*************************************************************************************************/
 
 api::result<server_time_t> api::server_time(server_time_cb cb) {
-    return pimpl->post(false, "/api/v3/time", boost::beast::http::verb::get, {}, std::move(cb));
+    return pimpl->post(false, "/0/public/Time", boost::beast::http::verb::get, {}, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<tickers_t> api::ticker(const char *pair, tickers_cb cb) {
+    const impl::init_list_type map = {
+        {"pair", pair}
+    };
+
+    return pimpl->post(false, "/0/public/Ticker", boost::beast::http::verb::get, map, std::move(cb));
+}
+
+api::result<tickers_t> api::tickers(tickers_cb cb) {
+    return pimpl->post(false, "/0/public/Ticker", boost::beast::http::verb::get, {}, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<asset_pairs_t> api::asset_pairs(asset_pairs_cb cb) {
+    return pimpl->post(false, "/0/public/AssetPairs", boost::beast::http::verb::get, {}, std::move(cb));
+}
+
+api::result<asset_pairs_t> api::asset_pairs(const char *pair, asset_pairs_cb cb) {
+    const impl::init_list_type map = {
+        {"pair", pair}
+    };
+
+    return pimpl->post(false, "/0/public/AssetPairs", boost::beast::http::verb::get, map, std::move(cb));
 }
 
 /*************************************************************************************************/
