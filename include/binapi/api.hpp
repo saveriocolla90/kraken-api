@@ -185,6 +185,41 @@ struct api {
     result<asset_pairs_t>
     asset_pairs(const char *pair, asset_pairs_cb cb = {});
 
+    // https://docs.kraken.com/rest/#tag/Trading/operation/addOrder
+    // Kraken `private/AddOrder`. Pass validate=true to only validate (no execution).
+    using add_order_cb = std::function<bool(const char *fl, int ec, std::string errmsg, add_order_t res)>;
+    result<add_order_t>
+    add_order(
+         const std::string &pair
+        ,const std::string &type        // "buy" / "sell"
+        ,const std::string &ordertype   // "market" / "limit" / "stop-loss" / ...
+        ,const std::string &volume
+        ,const std::string &price = std::string{}   // required for limit/stop orders
+        ,bool validate = false
+        ,add_order_cb cb = {}
+    );
+
+    // https://docs.kraken.com/rest/#tag/Trading/operation/cancelOrder
+    // Kraken `private/CancelOrder` — cancel by transaction id (or userref).
+    using cancel_order_resp_cb = std::function<bool(const char *fl, int ec, std::string errmsg, cancel_order_t res)>;
+    result<cancel_order_t>
+    cancel_order(const std::string &txid, cancel_order_resp_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Account-Data/operation/getOpenOrders
+    using open_orders_resp_cb = std::function<bool(const char *fl, int ec, std::string errmsg, open_orders_t res)>;
+    result<open_orders_t>
+    open_orders(open_orders_resp_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Account-Data/operation/getClosedOrders
+    using closed_orders_cb = std::function<bool(const char *fl, int ec, std::string errmsg, closed_orders_t res)>;
+    result<closed_orders_t>
+    closed_orders(closed_orders_cb cb = {});
+
+    // https://docs.kraken.com/rest/#tag/Account-Data/operation/getTradeHistory
+    using trades_history_cb = std::function<bool(const char *fl, int ec, std::string errmsg, trades_history_t res)>;
+    result<trades_history_t>
+    trades_history(trades_history_cb cb = {});
+
     // https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#query-order-user_data
     using order_info_cb = std::function<bool(const char *fl, int ec, std::string errmsg, order_info_t res)>;
     result<order_info_t>

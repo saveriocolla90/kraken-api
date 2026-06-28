@@ -839,6 +839,57 @@ api::result<asset_pairs_t> api::asset_pairs(const char *pair, asset_pairs_cb cb)
 
 /*************************************************************************************************/
 
+api::result<add_order_t> api::add_order(
+     const std::string &pair
+    ,const std::string &type
+    ,const std::string &ordertype
+    ,const std::string &volume
+    ,const std::string &price
+    ,bool validate
+    ,add_order_cb cb
+) {
+    const impl::init_list_type map = {
+         {"pair", pair.c_str()}
+        ,{"type", type.c_str()}
+        ,{"ordertype", ordertype.c_str()}
+        ,{"volume", volume.c_str()}
+        ,{"price", price.empty() ? nullptr : price.c_str()}
+        ,{"validate", validate ? "true" : nullptr}
+    };
+
+    return pimpl->post(true, "/0/private/AddOrder", boost::beast::http::verb::post, map, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<cancel_order_t> api::cancel_order(const std::string &txid, cancel_order_resp_cb cb) {
+    const impl::init_list_type map = {
+        {"txid", txid.c_str()}
+    };
+
+    return pimpl->post(true, "/0/private/CancelOrder", boost::beast::http::verb::post, map, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<open_orders_t> api::open_orders(open_orders_resp_cb cb) {
+    return pimpl->post(true, "/0/private/OpenOrders", boost::beast::http::verb::post, {}, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<closed_orders_t> api::closed_orders(closed_orders_cb cb) {
+    return pimpl->post(true, "/0/private/ClosedOrders", boost::beast::http::verb::post, {}, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+api::result<trades_history_t> api::trades_history(trades_history_cb cb) {
+    return pimpl->post(true, "/0/private/TradesHistory", boost::beast::http::verb::post, {}, std::move(cb));
+}
+
+/*************************************************************************************************/
+
 api::result<prices_t::price_t> api::price(const char *symbol, price_cb cb) {
     const impl::init_list_type map = {
         {"symbol", symbol}

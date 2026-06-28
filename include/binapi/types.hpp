@@ -229,6 +229,108 @@ struct asset_pairs_t {
     friend std::ostream &operator<<(std::ostream &os, const asset_pairs_t &f);
 };
 
+// https://docs.kraken.com/rest/#tag/Trading/operation/addOrder
+// Kraken `private/AddOrder` reply: {"descr":{"order":"..."},"txid":["..."]}
+// (with validate=true there is no txid, only descr).
+struct add_order_t {
+    std::string descr;                   // descr.order — human-readable description
+    std::vector<std::string> txid;       // transaction ids of the placed order(s)
+
+    static add_order_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const add_order_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Trading/operation/cancelOrder
+// Kraken `private/CancelOrder` reply: {"count":1} (+ optional "pending":true)
+struct cancel_order_t {
+    std::size_t count;   // number of orders canceled
+    bool pending;        // true if cancellation is still being processed
+
+    static cancel_order_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const cancel_order_t &f);
+};
+
+// A single Kraken order, shared by OpenOrders and ClosedOrders.
+struct kraken_order_t {
+    std::string txid;        // result key (the order's transaction id)
+    std::string status;      // open/closed/canceled/pending/expired
+    std::size_t userref;     // user reference id (0 if unset)
+    double opentm;           // open timestamp (fractional unix seconds)
+    double closetm;          // close timestamp (closed orders only; 0 otherwise)
+    double starttm;          // scheduled start (0 if immediate)
+    double expiretm;         // expiration (0 if none)
+
+    struct descr_t {
+        std::string pair;
+        std::string type;        // buy/sell
+        std::string ordertype;   // limit/market/...
+        double_type price;
+        double_type price2;
+        std::string leverage;
+        std::string order;       // human-readable order description
+        std::string close;       // conditional close description
+    } descr;
+
+    double_type vol;         // order volume
+    double_type vol_exec;    // executed volume
+    double_type cost;        // total cost
+    double_type fee;         // total fee
+    double_type price;       // average price
+    double_type stopprice;   // stop price
+    double_type limitprice;  // triggered limit price
+    std::string misc;
+    std::string oflags;
+    std::string reason;      // close/cancel reason (closed orders; may be empty)
+
+    static kraken_order_t construct(const std::string &txid, const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const kraken_order_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Account-Data/operation/getOpenOrders
+struct open_orders_t {
+    std::map<std::string, kraken_order_t> orders; // txid -> order
+
+    static open_orders_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const open_orders_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Account-Data/operation/getClosedOrders
+struct closed_orders_t {
+    std::map<std::string, kraken_order_t> orders; // txid -> order
+    std::size_t count;                            // total count available
+
+    static closed_orders_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const closed_orders_t &f);
+};
+
+// https://docs.kraken.com/rest/#tag/Account-Data/operation/getTradeHistory
+struct trades_history_t {
+    struct trade_t {
+        std::string txid;        // result key (trade id)
+        std::string ordertxid;   // order responsible for the trade
+        std::string postxid;     // position id
+        std::string pair;
+        double time;             // trade timestamp (fractional unix seconds)
+        std::string type;        // buy/sell
+        std::string ordertype;   // limit/market/...
+        double_type price;
+        double_type cost;
+        double_type fee;
+        double_type vol;
+        double_type margin;
+        std::string misc;
+
+        static trade_t construct(const std::string &txid, const flatjson::fjson &json);
+        friend std::ostream &operator<<(std::ostream &os, const trade_t &f);
+    };
+
+    std::map<std::string, trade_t> trades; // txid -> trade
+    std::size_t count;                     // total count available
+
+    static trades_history_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const trades_history_t &f);
+};
+
 // https://github.com/binance-exchange/binance-official-api-docs/blob/master/rest-api.md#exchange-information
 struct exchange_info_t {
     std::string timezone;

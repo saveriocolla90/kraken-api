@@ -14,6 +14,7 @@
 #include <binapi/fnv1a.hpp>
 
 #include <type_traits>
+#include <cstdio>
 
 #include <boost/utility/string_view.hpp>
 
@@ -598,6 +599,292 @@ std::ostream &operator<<(std::ostream &os, const asset_pairs_t &o) {
         }
     }
     os << "]";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+add_order_t add_order_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+
+    add_order_t res{};
+    const auto result = json.at("result");
+
+    if ( result.contains("descr") && !result.at("descr").is_null() ) {
+        const auto d = result.at("descr");
+        if ( d.contains("order") ) {
+            res.descr = d.at("order").to_string();
+        }
+    }
+    if ( result.contains("txid") ) {
+        const auto t = result.at("txid");
+        for ( auto idx = 0u; idx < t.size(); ++idx ) {
+            res.txid.push_back(t.at(idx).to_string());
+        }
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const add_order_t &o) {
+    os
+    << "{"
+    << "\"descr\":\"" << o.descr << "\","
+    << "\"txid\":[";
+    for ( auto it = o.txid.begin(); it != o.txid.end(); ++it ) {
+        os << "\"" << *it << "\"";
+        if ( std::next(it) != o.txid.end() ) { os << ","; }
+    }
+    os << "]}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+cancel_order_t cancel_order_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+
+    cancel_order_t res{};
+    const auto result = json.at("result");
+    __BINAPI_GET2(res, count, result);
+    if ( result.contains("pending") ) {
+        res.pending = result.at("pending").to_bool();
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const cancel_order_t &o) {
+    os
+    << "{"
+    << "\"count\":" << o.count << ","
+    << "\"pending\":" << (o.pending ? "true" : "false")
+    << "}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+// Kraken timestamps are fractional unix seconds; format without scientific
+// notation and without losing the sub-second part.
+static std::string fmt_seconds(double v) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.4f", v);
+
+    return buf;
+}
+
+kraken_order_t kraken_order_t::construct(const std::string &txid, const flatjson::fjson &json) {
+    assert(json.is_valid());
+    assert(json.is_object());
+
+    kraken_order_t res{};
+    res.txid = txid;
+
+    __BINAPI_GET2(res, status, json);
+    if ( json.contains("userref") && !json.at("userref").is_null() ) { __BINAPI_GET2(res, userref, json); }
+    if ( json.contains("opentm") )   { res.opentm   = json.at("opentm").to_double(); }
+    if ( json.contains("closetm") )  { res.closetm  = json.at("closetm").to_double(); }
+    if ( json.contains("starttm") )  { res.starttm  = json.at("starttm").to_double(); }
+    if ( json.contains("expiretm") ) { res.expiretm = json.at("expiretm").to_double(); }
+
+    const auto d = json.at("descr");
+    __BINAPI_GET2(res.descr, pair, d);
+    __BINAPI_GET2(res.descr, type, d);
+    __BINAPI_GET2(res.descr, ordertype, d);
+    __BINAPI_GET2(res.descr, price, d);
+    __BINAPI_GET2(res.descr, price2, d);
+    __BINAPI_GET2(res.descr, leverage, d);
+    __BINAPI_GET2(res.descr, order, d);
+    if ( d.contains("close") && !d.at("close").is_null() ) { __BINAPI_GET2(res.descr, close, d); }
+
+    __BINAPI_GET2(res, vol, json);
+    __BINAPI_GET2(res, vol_exec, json);
+    __BINAPI_GET2(res, cost, json);
+    __BINAPI_GET2(res, fee, json);
+    __BINAPI_GET2(res, price, json);
+    __BINAPI_GET2(res, stopprice, json);
+    __BINAPI_GET2(res, limitprice, json);
+    if ( json.contains("misc") )   { __BINAPI_GET2(res, misc, json); }
+    if ( json.contains("oflags") ) { __BINAPI_GET2(res, oflags, json); }
+    if ( json.contains("reason") && !json.at("reason").is_null() ) { __BINAPI_GET2(res, reason, json); }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const kraken_order_t &o) {
+    os
+    << "{"
+    << "\"txid\":\"" << o.txid << "\","
+    << "\"status\":\"" << o.status << "\","
+    << "\"userref\":" << o.userref << ","
+    << "\"opentm\":" << fmt_seconds(o.opentm) << ","
+    << "\"closetm\":" << fmt_seconds(o.closetm) << ","
+    << "\"pair\":\"" << o.descr.pair << "\","
+    << "\"type\":\"" << o.descr.type << "\","
+    << "\"ordertype\":\"" << o.descr.ordertype << "\","
+    << "\"descr\":\"" << o.descr.order << "\","
+    << "\"vol\":\"" << o.vol << "\","
+    << "\"vol_exec\":\"" << o.vol_exec << "\","
+    << "\"cost\":\"" << o.cost << "\","
+    << "\"fee\":\"" << o.fee << "\","
+    << "\"price\":\"" << o.price << "\","
+    << "\"oflags\":\"" << o.oflags << "\""
+    << "}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+open_orders_t open_orders_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+
+    open_orders_t res{};
+    const auto result = json.at("result");
+    if ( !result.contains("open") ) {
+        return res;
+    }
+
+    const auto open = result.at("open");
+    const auto keys = open.get_keys();
+    for ( const auto &k : keys ) {
+        const std::string txid{k.data(), k.size()};
+        res.orders.emplace(txid, kraken_order_t::construct(txid, open.at(txid.c_str())));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const open_orders_t &o) {
+    os << "[";
+    for ( auto it = o.orders.begin(); it != o.orders.end(); ++it ) {
+        os << it->second;
+        if ( std::next(it) != o.orders.end() ) { os << ","; }
+    }
+    os << "]";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+closed_orders_t closed_orders_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+
+    closed_orders_t res{};
+    const auto result = json.at("result");
+    if ( result.contains("count") ) {
+        __BINAPI_GET2(res, count, result);
+    }
+    if ( !result.contains("closed") ) {
+        return res;
+    }
+
+    const auto closed = result.at("closed");
+    const auto keys = closed.get_keys();
+    for ( const auto &k : keys ) {
+        const std::string txid{k.data(), k.size()};
+        res.orders.emplace(txid, kraken_order_t::construct(txid, closed.at(txid.c_str())));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const closed_orders_t &o) {
+    os
+    << "{"
+    << "\"count\":" << o.count << ","
+    << "\"orders\":[";
+    for ( auto it = o.orders.begin(); it != o.orders.end(); ++it ) {
+        os << it->second;
+        if ( std::next(it) != o.orders.end() ) { os << ","; }
+    }
+    os << "]}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
+trades_history_t::trade_t
+trades_history_t::trade_t::construct(const std::string &txid, const flatjson::fjson &json) {
+    assert(json.is_valid());
+    assert(json.is_object());
+
+    trades_history_t::trade_t res{};
+    res.txid = txid;
+
+    __BINAPI_GET2(res, ordertxid, json);
+    if ( json.contains("postxid") ) { __BINAPI_GET2(res, postxid, json); }
+    __BINAPI_GET2(res, pair, json);
+    res.time = json.at("time").to_double();
+    __BINAPI_GET2(res, type, json);
+    __BINAPI_GET2(res, ordertype, json);
+    __BINAPI_GET2(res, price, json);
+    __BINAPI_GET2(res, cost, json);
+    __BINAPI_GET2(res, fee, json);
+    __BINAPI_GET2(res, vol, json);
+    __BINAPI_GET2(res, margin, json);
+    if ( json.contains("misc") ) { __BINAPI_GET2(res, misc, json); }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const trades_history_t::trade_t &o) {
+    os
+    << "{"
+    << "\"txid\":\"" << o.txid << "\","
+    << "\"ordertxid\":\"" << o.ordertxid << "\","
+    << "\"pair\":\"" << o.pair << "\","
+    << "\"time\":" << fmt_seconds(o.time) << ","
+    << "\"type\":\"" << o.type << "\","
+    << "\"ordertype\":\"" << o.ordertype << "\","
+    << "\"price\":\"" << o.price << "\","
+    << "\"cost\":\"" << o.cost << "\","
+    << "\"fee\":\"" << o.fee << "\","
+    << "\"vol\":\"" << o.vol << "\","
+    << "\"margin\":\"" << o.margin << "\""
+    << "}";
+
+    return os;
+}
+
+trades_history_t trades_history_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+
+    trades_history_t res{};
+    const auto result = json.at("result");
+    if ( result.contains("count") ) {
+        __BINAPI_GET2(res, count, result);
+    }
+    if ( !result.contains("trades") ) {
+        return res;
+    }
+
+    const auto trades = result.at("trades");
+    const auto keys = trades.get_keys();
+    for ( const auto &k : keys ) {
+        const std::string txid{k.data(), k.size()};
+        res.trades.emplace(txid, trades_history_t::trade_t::construct(txid, trades.at(txid.c_str())));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const trades_history_t &o) {
+    os
+    << "{"
+    << "\"count\":" << o.count << ","
+    << "\"trades\":[";
+    for ( auto it = o.trades.begin(); it != o.trades.end(); ++it ) {
+        os << it->second;
+        if ( std::next(it) != o.trades.end() ) { os << ","; }
+    }
+    os << "]}";
 
     return os;
 }
