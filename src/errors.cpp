@@ -71,17 +71,24 @@ const char* e_error_to_string(int v) {
 /*************************************************************************************************/
 
 bool is_api_error(const flatjson::fjson &json) {
-    return json.contains("code") && json.contains("msg");
+    // Kraken wraps every reply as {"error":[...],"result":{...}};
+    // a non-empty "error" array means the call failed.
+    return json.contains("error") && json.at("error").size() > 0;
 }
 
 /*************************************************************************************************/
 
 std::pair<int, std::string>
 construct_error(const flatjson::fjson &json) {
-    auto ec = json.at("code").to_int();
-    auto msg = json.at("msg").to_string();
+    const auto error = json.at("error");
+    std::string msg = error.size() > 0
+        ? error.at(0u).to_string()
+        : std::string{"unknown error"}
+    ;
 
-    return std::make_pair(ec, std::move(msg));
+    // Kraken errors are strings like "EAPI:Invalid key"; we surface the message
+    // and use a generic non-zero code.
+    return std::make_pair(static_cast<int>(e_error::UNKNOWN), std::move(msg));
 }
 
 /*************************************************************************************************/

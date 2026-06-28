@@ -382,6 +382,46 @@ std::ostream &operator<<(std::ostream &os, const account_info_t &o) {
 
 /*************************************************************************************************/
 
+const double_type& balances_t::get(const std::string &asset) const {
+    static const double_type zero{0};
+    const auto it = balances.find(asset);
+
+    return it == balances.end() ? zero : it->second;
+}
+
+balances_t balances_t::construct(const flatjson::fjson &json) {
+    assert(json.is_valid());
+    assert(json.is_object());
+
+    balances_t res{};
+
+    const auto result = json.at("result");
+    const auto keys = result.get_keys();
+    for ( const auto &k : keys ) {
+        const std::string asset{k.data(), k.size()};
+        double_type amount{};
+        amount.assign(result.at(asset.c_str()).to_string());
+        res.balances.emplace(asset, std::move(amount));
+    }
+
+    return res;
+}
+
+std::ostream &operator<<(std::ostream &os, const balances_t &o) {
+    os << "{";
+    for ( auto it = o.balances.begin(); it != o.balances.end(); ++it ) {
+        os << "\"" << it->first << "\":\"" << it->second << "\"";
+        if ( std::next(it) != o.balances.end() ) {
+            os << ",";
+        }
+    }
+    os << "}";
+
+    return os;
+}
+
+/*************************************************************************************************/
+
 std::ostream& operator<<(std::ostream &os, const exchange_info_t::rate_limit_t &o) {
     os
     << "{"

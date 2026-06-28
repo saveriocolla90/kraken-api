@@ -152,6 +152,19 @@ struct account_info_t {
     friend std::ostream &operator<<(std::ostream &os, const account_info_t &f);
 };
 
+// https://docs.kraken.com/rest/#tag/Account-Data/operation/getAccountBalance
+// Kraken `private/Balance`: result is an object of asset -> amount, e.g.
+//   {"error":[],"result":{"ZUSD":"171.3900","XXBT":"0.0123456700"}}
+struct balances_t {
+    std::map<std::string, double_type> balances; // asset name -> total balance
+
+    bool has(const std::string &asset) const { return balances.count(asset) != 0; }
+    const double_type& get(const std::string &asset) const;
+
+    static balances_t construct(const flatjson::fjson &json);
+    friend std::ostream &operator<<(std::ostream &os, const balances_t &f);
+};
+
 // https://github.com/binance-exchange/binance-official-api-docs/blob/master/rest-api.md#exchange-information
 struct exchange_info_t {
     std::string timezone;

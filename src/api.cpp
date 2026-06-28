@@ -128,6 +128,105 @@ std::string hmac_sha256(const char *key, std::size_t klen, const char *data, std
     return b2a_hex(digest, dilen);
 }
 
+/*************************************************************************************************/
+// Kraken REST signing helpers.
+//
+// Kraken private endpoints are authenticated as:
+//   API-Sign = base64( HMAC_SHA512( base64decode(secret),
+//                                   path_bytes ++ SHA256(nonce ++ postdata) ) )
+// with headers `API-Key` (the public key) and `API-Sign`, and a `nonce` field in
+// the urlencoded POST body.
+/*************************************************************************************************/
+
+std::string sha256_raw(const std::string &in) {
+    std::uint8_t digest[SHA256_DIGEST_LENGTH];
+    ::SHA256(reinterpret_cast<const std::uint8_t *>(in.data()), in.size(), digest);
+
+    return std::string(reinterpret_cast<const char *>(digest), SHA256_DIGEST_LENGTH);
+}
+
+std::string hmac_sha512_raw(const std::string &key, const std::string &data) {
+    std::uint8_t digest[EVP_MAX_MD_SIZE];
+    std::uint32_t dilen{};
+
+    ::HMAC(
+         ::EVP_sha512()
+        ,key.data()
+        ,key.size()
+        ,reinterpret_cast<const std::uint8_t *>(data.data())
+        ,data.size()
+        ,digest
+        ,&dilen
+    );
+
+    return std::string(reinterpret_cast<const char *>(digest), dilen);
+}
+
+std::string base64_encode(const std::string &in) {
+    if ( in.empty() ) {
+        return {};
+    }
+
+    std::string out(4u * ((in.size() + 2u) / 3u), '\0');
+    const int len = ::EVP_EncodeBlock(
+         reinterpret_cast<std::uint8_t *>(&out[0])
+        ,reinterpret_cast<const std::uint8_t *>(in.data())
+        ,static_cast<int>(in.size())
+    );
+    out.resize(len < 0 ? 0u : static_cast<std::size_t>(len));
+
+    return out;
+}
+
+std::string base64_decode(const std::string &in) {
+    if ( in.empty() ) {
+        return {};
+    }
+
+    std::string out(3u * (in.size() / 4u), '\0');
+    int len = ::EVP_DecodeBlock(
+         reinterpret_cast<std::uint8_t *>(&out[0])
+        ,reinterpret_cast<const std::uint8_t *>(in.data())
+        ,static_cast<int>(in.size())
+    );
+    if ( len < 0 ) {
+        return {};
+    }
+    // EVP_DecodeBlock always emits a multiple of 3 bytes; trim the '=' padding.
+    if ( in.size() >= 1u && in[in.size() - 1u] == '=' ) { --len; }
+    if ( in.size() >= 2u && in[in.size() - 2u] == '=' ) { --len; }
+    out.resize(static_cast<std::size_t>(len));
+
+    return out;
+}
+
+// monotonically increasing nonce (milliseconds since epoch, bumped on collision)
+std::uint64_t get_kraken_nonce() {
+    static std::uint64_t last = 0u;
+    std::uint64_t now = get_current_ms_epoch();
+    if ( now <= last ) {
+        now = last + 1u;
+    }
+    last = now;
+
+    return now;
+}
+
+std::string kraken_signature(
+     const std::string &path
+    ,const std::string &nonce
+    ,const std::string &postdata
+    ,const std::string &b64secret)
+{
+    const std::string sha = sha256_raw(nonce + postdata);
+    const std::string message = path + sha;
+    const std::string mac = hmac_sha512_raw(base64_decode(b64secret), message);
+
+    return base64_encode(mac);
+}
+
+/*************************************************************************************************/
+
 // unused for now
 bool verify_signature(const unsigned char* sig, std::size_t slen, const char* data, std::size_t dlen)
 {
@@ -292,28 +391,21 @@ struct api::impl {
             }
         }
 
+        // Kraken: private endpoints are signed POSTs with a `nonce` in the body.
+        std::string api_sign;
         if ( _signed ) {
             assert(!m_pk.empty() && !m_sk.empty());
 
+            const std::string nonce = std::to_string(get_kraken_nonce());
+            std::string body = "nonce=";
+            body += nonce;
             if ( !data.empty() ) {
-                data += "&";
+                body += "&";
+                body += data;
             }
-            data += "timestamp=";
-            char buf[32];
-            data += to_string(buf, sizeof(buf), get_current_ms_epoch());
+            data = std::move(body);
 
-            data += "&recvWindow=";
-            data += to_string(buf, sizeof(buf), m_timeout);
-
-            std::string signature = hmac_sha256(
-                 m_sk.c_str()
-                ,m_sk.length()
-                ,data.c_str()
-                ,data.length()
-            );
-
-            data += "&signature=";
-            data += signature;
+            api_sign = kraken_signature(std::string{target}, nonce, data, m_sk);
         }
 
         bool get_delete =
@@ -329,7 +421,7 @@ struct api::impl {
         api::result<R> res{};
         if ( !cb ) {
             try {
-                api::result<std::string> r = sync_post(starget.c_str(), action, std::move(data));
+                api::result<std::string> r = sync_post(starget.c_str(), action, std::move(data), api_sign);
                 if ( !r.v.empty() && is_html(r.v.c_str()) ) {
                     r.errmsg = std::move(r.v);
                 } else {
@@ -365,6 +457,7 @@ struct api::impl {
                  starget
                 ,action
                 ,std::move(data)
+                ,std::move(api_sign)
                 ,std::make_shared<invoker_type>(std::move(cb))
             };
             m_async_requests.push(std::move(item));
@@ -376,7 +469,7 @@ struct api::impl {
     }
 
     api::result<std::string>
-    sync_post(const char *target, boost::beast::http::verb action, std::string data) {
+    sync_post(const char *target, boost::beast::http::verb action, std::string data, const std::string &api_sign) {
         api::result<std::string> res{};
 
         boost::asio::ssl::stream<boost::asio::ip::tcp::socket> ssl_stream(m_ioctx, m_ssl_ctx);
@@ -424,7 +517,12 @@ struct api::impl {
             req.set(boost::beast::http::field::content_length, std::to_string(req.body().length()));
         }
 
-        req.insert("X-MBX-APIKEY", m_pk);
+        if ( !m_pk.empty() ) {
+            req.insert("API-Key", m_pk);
+        }
+        if ( !api_sign.empty() ) {
+            req.insert("API-Sign", api_sign);
+        }
         req.set(boost::beast::http::field::host, m_host);
         req.set(boost::beast::http::field::user_agent, m_client_api_string);
         req.set(boost::beast::http::field::content_type, "application/x-www-form-urlencoded");
@@ -474,6 +572,7 @@ struct api::impl {
         auto action = front.action;
         std::string data = std::move(front.data);
         std::string target = front.target;
+        std::string sign = std::move(front.sign);
         //std::cout << "async_post(): target=" << target << std::endl;
 
         auto req = std::make_unique<request_type>();
@@ -485,7 +584,12 @@ struct api::impl {
         }
 
         req->target(target);
-        req->insert("X-MBX-APIKEY", m_pk);
+        if ( !m_pk.empty() ) {
+            req->insert("API-Key", m_pk);
+        }
+        if ( !sign.empty() ) {
+            req->insert("API-Sign", sign);
+        }
         req->set(boost::beast::http::field::host, m_host);
         req->set(boost::beast::http::field::user_agent, m_client_api_string);
         req->set(boost::beast::http::field::content_type, "application/x-www-form-urlencoded");
@@ -659,6 +763,7 @@ struct api::impl {
         std::string target;
         boost::beast::http::verb action;
         std::string data;
+        std::string sign;
         detail::invoker_ptr invoker;
     };
     std::queue<async_req_item> m_async_requests;
@@ -859,6 +964,13 @@ api::result<klines_t> api::historical_klines(const char *symbol, const char *int
 
 api::result<account_info_t> api::account_info(account_info_cb cb) {
     return pimpl->post(true, "/api/v3/account", boost::beast::http::verb::get, {}, std::move(cb));
+}
+
+/*************************************************************************************************/
+
+// Kraken proof-of-concept: signed POST to /0/private/Balance
+api::result<balances_t> api::balances(balances_cb cb) {
+    return pimpl->post(true, "/0/private/Balance", boost::beast::http::verb::post, {}, std::move(cb));
 }
 
 /*************************************************************************************************/

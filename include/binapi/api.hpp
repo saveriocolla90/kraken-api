@@ -159,6 +159,12 @@ struct api {
     result<account_info_t>
     account_info(account_info_cb cb = {});
 
+    // https://docs.kraken.com/rest/#tag/Account-Data/operation/getAccountBalance
+    // Kraken `private/Balance` — account balances per asset.
+    using balances_cb = std::function<bool(const char *fl, int ec, std::string errmsg, balances_t res)>;
+    result<balances_t>
+    balances(balances_cb cb = {});
+
     // https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#query-order-user_data
     using order_info_cb = std::function<bool(const char *fl, int ec, std::string errmsg, order_info_t res)>;
     result<order_info_t>
