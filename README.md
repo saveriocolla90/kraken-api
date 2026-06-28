@@ -63,14 +63,14 @@ cmake --build build -j
 The shared library is the default target. To also build the bundled CLI demo
 (`main.cpp`):
 ```sh
-cmake -S . -B build -DBINAPI_BUILD_EXAMPLE=ON
+cmake -S . -B build -DKRAPI_BUILD_EXAMPLE=ON
 cmake --build build -j
 ```
 See `examples/kraken-balance/` for a standalone example.
 
 # Synchronous example
 ```cpp
-#include <binapi/api.hpp>
+#include <krapi/api.hpp>
 
 #include <boost/asio/io_context.hpp>
 
@@ -81,7 +81,7 @@ int main() {
     const std::string sk = "...";  // base64 private key
 
     boost::asio::io_context ioctx;
-    binapi::rest::api api(
+    krapi::rest::api api(
          ioctx
         ,"api.kraken.com"
         ,"443"
@@ -115,7 +115,7 @@ int main() {
 # Asynchronous example
 Passing a callback makes the call asynchronous; drive it with `ioctx.run()`.
 ```cpp
-#include <binapi/api.hpp>
+#include <krapi/api.hpp>
 
 #include <boost/asio/io_context.hpp>
 
@@ -126,10 +126,10 @@ int main() {
     const std::string sk = "...";  // base64 private key
 
     boost::asio::io_context ioctx;
-    binapi::rest::api api(ioctx, "api.kraken.com", "443", pk, sk, 10000);
+    krapi::rest::api api(ioctx, "api.kraken.com", "443", pk, sk, 10000);
 
     api.balances(
-        [](const char *fl, int ec, std::string errmsg, binapi::rest::balances_t res) {
+        [](const char *fl, int ec, std::string errmsg, krapi::rest::balances_t res) {
             if ( ec ) {
                 std::cerr << "balances error: fl=" << fl
                           << ", ec=" << ec << ", emsg=" << errmsg << std::endl;

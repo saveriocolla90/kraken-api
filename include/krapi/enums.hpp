@@ -9,12 +9,12 @@
 // Copyright (c) 2019-2021 niXman (github dot nixman dog pm.me). All rights reserved.
 // ----------------------------------------------------------------------------
 
-#ifndef __binapi__enums_hpp
-#define __binapi__enums_hpp
+#ifndef __krapi__enums_hpp
+#define __krapi__enums_hpp
 
 #include <cstdint>
 
-namespace binapi
+namespace krapi
 {
 
     /*************************************************************************************************/
@@ -112,6 +112,6 @@ namespace binapi
 
     /*************************************************************************************************/
 
-} // ns binapi
+} // ns krapi
 
-#endif // __binapi__enums_hpp
+#endif // __krapi__enums_hpp

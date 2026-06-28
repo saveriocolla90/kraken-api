@@ -20,7 +20,7 @@ if (DEFINED ${BOOST_INCLUDE_DIR})
     )
 endif()
 
-set(BINAPI_HEADERS
+set(KRAPI_HEADERS
     binapi/api.hpp
     binapi/flatjson.hpp
     binapi/dtf.hpp
@@ -34,7 +34,7 @@ set(BINAPI_HEADERS
     binapi/websocket.hpp
 )
 
-set(BINAPI_SOURCES
+set(KRAPI_SOURCES
     ../../src/api.cpp
     ../../src/enums.cpp
     ../../src/errors.cpp
@@ -48,7 +48,7 @@ add_executable(
     #
     main.cpp
     #
-    ${BINAPI_SOURCES}
+    ${KRAPI_SOURCES}
 )
 
 if (DEFINED ${BOOST_LIB_DIR})

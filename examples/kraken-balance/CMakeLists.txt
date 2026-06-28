@@ -20,7 +20,7 @@ if (DEFINED ${BOOST_INCLUDE_DIR})
     )
 endif()
 
-set(BINAPI_SOURCES
+set(KRAPI_SOURCES
     ../../src/errors.cpp
     ../../src/api.cpp
     ../../src/enums.cpp
@@ -34,7 +34,7 @@ add_executable(
     #
     main.cpp
     #
-    ${BINAPI_SOURCES}
+    ${KRAPI_SOURCES}
 )
 
 if (DEFINED ${BOOST_LIB_DIR})

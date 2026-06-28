@@ -9,9 +9,9 @@
 // Copyright (c) 2019-2021 niXman (github dot nixman dog pm.me). All rights reserved.
 // ----------------------------------------------------------------------------
 
-#include <binapi/api.hpp>
-#include <binapi/invoker.hpp>
-#include <binapi/errors.hpp>
+#include <krapi/api.hpp>
+#include <krapi/invoker.hpp>
+#include <krapi/errors.hpp>
 
 #include <boost/preprocessor.hpp>
 #include <boost/callable_traits.hpp>
@@ -32,46 +32,44 @@
 
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
-#include <binapi/flatjson.hpp>
+#include <krapi/flatjson.hpp>
 
-namespace binapi {
-namespace rest {
+namespace krapi
+{
+    namespace rest
+    {
 
-/*************************************************************************************************/
+        /*************************************************************************************************/
 
 #define __CATCH_BLOCK_WRITES_TO_STDOUT
 
 #ifndef __CATCH_BLOCK_WRITES_TO_STDOUT
-#   define  __CATCH_BLOCK_WRITES_TO_STDOUT_EXPAND_EXPR(...)
+#define __CATCH_BLOCK_WRITES_TO_STDOUT_EXPAND_EXPR(...)
 #else
-#   define  __CATCH_BLOCK_WRITES_TO_STDOUT_EXPAND_EXPR(...) __VA_ARGS__
+#define __CATCH_BLOCK_WRITES_TO_STDOUT_EXPAND_EXPR(...) __VA_ARGS__
 #endif // __CATCH_BLOCK_WRITES_TO_STDOUT
 
-#define __CATCH_BLOCK_WITH_USERCODE(os, exception, ...) \
-    catch (const exception &ex) { \
-        __CATCH_BLOCK_WRITES_TO_STDOUT_EXPAND_EXPR( \
-            os << __MESSAGE("[" BOOST_PP_STRINGIZE(exception) "]: " << ex.what()) << std::endl; \
-        ) \
-        { BOOST_PP_EXPAND __VA_ARGS__; } \
+#define __CATCH_BLOCK_WITH_USERCODE(os, exception, ...)                                          \
+    catch (const exception &ex)                                                                  \
+    {                                                                                            \
+        __CATCH_BLOCK_WRITES_TO_STDOUT_EXPAND_EXPR(                                              \
+            os << __MESSAGE("[" BOOST_PP_STRINGIZE(exception) "]: " << ex.what()) << std::endl;) \
+        {                                                                                        \
+            BOOST_PP_EXPAND __VA_ARGS__;                                                         \
+        }                                                                                        \
     }
 
-#define __CATCH_BLOCK_WITHOUT_USERCODE(os, exception, ...) \
-    catch (const exception &ex) { \
-        __CATCH_BLOCK_WRITES_TO_STDOUT_EXPAND_EXPR( \
-            os << __MESSAGE("[" BOOST_PP_STRINGIZE(exception) "]: " << ex.what()) << std::endl; \
-        ) \
+#define __CATCH_BLOCK_WITHOUT_USERCODE(os, exception, ...)                                       \
+    catch (const exception &ex)                                                                  \
+    {                                                                                            \
+        __CATCH_BLOCK_WRITES_TO_STDOUT_EXPAND_EXPR(                                              \
+            os << __MESSAGE("[" BOOST_PP_STRINGIZE(exception) "]: " << ex.what()) << std::endl;) \
     }
 
-#define __CATCH_BLOCK_CB(unused0, data, elem) \
-    BOOST_PP_IF( \
-         BOOST_PP_GREATER(BOOST_PP_TUPLE_SIZE(elem), 1) \
-        ,__CATCH_BLOCK_WITH_USERCODE \
-        ,__CATCH_BLOCK_WITHOUT_USERCODE \
-    )( \
-         data \
-        ,BOOST_PP_TUPLE_ELEM(0, elem) \
-        ,BOOST_PP_TUPLE_POP_FRONT(elem) \
-    )
+#define __CATCH_BLOCK_CB(unused0, data, elem)                                                                         \
+    BOOST_PP_IF(                                                                                                      \
+        BOOST_PP_GREATER(BOOST_PP_TUPLE_SIZE(elem), 1), __CATCH_BLOCK_WITH_USERCODE, __CATCH_BLOCK_WITHOUT_USERCODE)( \
+        data, BOOST_PP_TUPLE_ELEM(0, elem), BOOST_PP_TUPLE_POP_FRONT(elem))
 
 #define __CATCH_BLOCK_WRAP_X(...) ((__VA_ARGS__)) __CATCH_BLOCK_WRAP_Y
 #define __CATCH_BLOCK_WRAP_Y(...) ((__VA_ARGS__)) __CATCH_BLOCK_WRAP_X
@@ -79,904 +77,879 @@ namespace rest {
 #define __CATCH_BLOCK_WRAP_Y0
 
 #define __CATCH_BLOCK(os, seq) \
-    BOOST_PP_SEQ_FOR_EACH( \
-         __CATCH_BLOCK_CB \
-        ,os \
-        ,BOOST_PP_CAT(__CATCH_BLOCK_WRAP_X seq, 0) \
-    )
+    BOOST_PP_SEQ_FOR_EACH(     \
+        __CATCH_BLOCK_CB, os, BOOST_PP_CAT(__CATCH_BLOCK_WRAP_X seq, 0))
 
 #define __TRY_BLOCK() \
     try
 
-/*************************************************************************************************/
+        /*************************************************************************************************/
 
-std::uint64_t get_current_ms_epoch() {
-    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count());
-}
-
-std::string b2a_hex(const std::uint8_t *p, std::size_t n) {
-    static const char hex[] = "0123456789abcdef";
-    std::string res;
-    res.reserve(n * 2);
-
-    for ( auto end = p + n; p != end; ++p ) {
-        const std::uint8_t v = (*p);
-        res += hex[(v >> 4) & 0x0F];
-        res += hex[v & 0x0F];
-    }
-
-    return res;
-}
-
-std::string hmac_sha256(const char *key, std::size_t klen, const char *data, std::size_t dlen) {
-    std::uint8_t digest[EVP_MAX_MD_SIZE];
-    std::uint32_t dilen{};
-
-    auto p = ::HMAC(
-         ::EVP_sha256()
-        ,key
-        ,klen
-        ,(std::uint8_t *)data
-        ,dlen
-        ,digest
-        ,&dilen
-    );
-    assert(p);
-
-    return b2a_hex(digest, dilen);
-}
-
-/*************************************************************************************************/
-// Kraken REST signing helpers.
-//
-// Kraken private endpoints are authenticated as:
-//   API-Sign = base64( HMAC_SHA512( base64decode(secret),
-//                                   path_bytes ++ SHA256(nonce ++ postdata) ) )
-// with headers `API-Key` (the public key) and `API-Sign`, and a `nonce` field in
-// the urlencoded POST body.
-/*************************************************************************************************/
-
-std::string sha256_raw(const std::string &in) {
-    std::uint8_t digest[SHA256_DIGEST_LENGTH];
-    ::SHA256(reinterpret_cast<const std::uint8_t *>(in.data()), in.size(), digest);
-
-    return std::string(reinterpret_cast<const char *>(digest), SHA256_DIGEST_LENGTH);
-}
-
-std::string hmac_sha512_raw(const std::string &key, const std::string &data) {
-    std::uint8_t digest[EVP_MAX_MD_SIZE];
-    std::uint32_t dilen{};
-
-    ::HMAC(
-         ::EVP_sha512()
-        ,key.data()
-        ,key.size()
-        ,reinterpret_cast<const std::uint8_t *>(data.data())
-        ,data.size()
-        ,digest
-        ,&dilen
-    );
-
-    return std::string(reinterpret_cast<const char *>(digest), dilen);
-}
-
-std::string base64_encode(const std::string &in) {
-    if ( in.empty() ) {
-        return {};
-    }
-
-    std::string out(4u * ((in.size() + 2u) / 3u), '\0');
-    const int len = ::EVP_EncodeBlock(
-         reinterpret_cast<std::uint8_t *>(&out[0])
-        ,reinterpret_cast<const std::uint8_t *>(in.data())
-        ,static_cast<int>(in.size())
-    );
-    out.resize(len < 0 ? 0u : static_cast<std::size_t>(len));
-
-    return out;
-}
-
-std::string base64_decode(const std::string &in) {
-    if ( in.empty() ) {
-        return {};
-    }
-
-    std::string out(3u * (in.size() / 4u), '\0');
-    int len = ::EVP_DecodeBlock(
-         reinterpret_cast<std::uint8_t *>(&out[0])
-        ,reinterpret_cast<const std::uint8_t *>(in.data())
-        ,static_cast<int>(in.size())
-    );
-    if ( len < 0 ) {
-        return {};
-    }
-    // EVP_DecodeBlock always emits a multiple of 3 bytes; trim the '=' padding.
-    if ( in.size() >= 1u && in[in.size() - 1u] == '=' ) { --len; }
-    if ( in.size() >= 2u && in[in.size() - 2u] == '=' ) { --len; }
-    out.resize(static_cast<std::size_t>(len));
-
-    return out;
-}
-
-// monotonically increasing nonce (milliseconds since epoch, bumped on collision)
-std::uint64_t get_kraken_nonce() {
-    static std::uint64_t last = 0u;
-    std::uint64_t now = get_current_ms_epoch();
-    if ( now <= last ) {
-        now = last + 1u;
-    }
-    last = now;
-
-    return now;
-}
-
-std::string kraken_signature(
-     const std::string &path
-    ,const std::string &nonce
-    ,const std::string &postdata
-    ,const std::string &b64secret)
-{
-    const std::string sha = sha256_raw(nonce + postdata);
-    const std::string message = path + sha;
-    const std::string mac = hmac_sha512_raw(base64_decode(b64secret), message);
-
-    return base64_encode(mac);
-}
-
-/*************************************************************************************************/
-
-// unused for now
-bool verify_signature(const unsigned char* sig, std::size_t slen, const char* data, std::size_t dlen)
-{
-    bool result = true;
-    auto pubkeyfile = BIO_new_file ( "testnet.pub.pem", "r" );
-    auto vkey = PEM_read_bio_PUBKEY( pubkeyfile, nullptr, nullptr, nullptr);
-
-    auto ctx = EVP_MD_CTX_new();
-    auto md = ::EVP_sha256();
-    assert(pubkeyfile && vkey && ctx && md);
-
-    if ( 1 != ( EVP_DigestInit_ex ( ctx, md, nullptr ) &&
-                EVP_DigestVerifyInit ( ctx, nullptr, md, nullptr, vkey ) &&
-                EVP_DigestVerifyUpdate ( ctx, data, dlen ) &&
-                EVP_DigestVerifyFinal ( ctx, sig, slen ) ) )
-    {
-        std::cerr << "EVP_DigestVerify* failed!" << std::endl;
-        result = false;
-    }
-
-    if (pubkeyfile)
-        BIO_free( pubkeyfile );
-    if (ctx)
-        EVP_MD_CTX_free( ctx );
-    if (vkey)
-        EVP_PKEY_free( vkey );
-
-    return result;
-}
-
-// unused for now
-std::string rsa_sha256(const char* privkeyfile, std::size_t /*pklen*/, const char *data, std::size_t dlen )
-{
-    static EVP_PKEY *pkey = nullptr;
-    if ( !pkey ) {
-         auto keybp = BIO_new_file ( privkeyfile, "r" );
-         pkey = EVP_PKEY_new();
-         pkey = PEM_read_bio_PrivateKey(keybp, nullptr, nullptr, nullptr);
-
-         if ( keybp )
-             BIO_free(keybp);
-    }
-    assert(pkey);
-
-    auto mdctx = EVP_MD_CTX_new();
-    std::size_t req = 0, slen = 0;
-    if ( 1 != (EVP_DigestSignInit( mdctx, nullptr, ::EVP_sha256(), nullptr, pkey ) &&
-               EVP_DigestSignUpdate( mdctx, data, dlen ) &&
-               EVP_DigestSignFinal( mdctx, nullptr, &req )) )
-    {
-        std::cerr << "EVP_DigestSign* failed!" << std::endl;
-        exit(1);
-    }
-
-    unsigned char* signature;
-    slen = req;
-    signature =  static_cast<unsigned char*> ( OPENSSL_malloc ( req ) );
-    if ( 1 != EVP_DigestSignFinal ( mdctx, signature, &slen ) ) {
-        std::cerr << "Digest Final (2) failed" << std::endl;
-    }
-    assert(slen == req);
-
-    // Uncomment to verify if priv/pub keypairs are working together
-    // assert( verify_signature(signature, slen, data, dlen ) );
-
-    unsigned char encodedSig[512];
-    int elen = EVP_EncodeBlock ( encodedSig, signature, slen );
-
-    if ( mdctx )
-        EVP_MD_CTX_free(mdctx);
-    if ( signature )
-        OPENSSL_free(signature);
-
-    return std::string(reinterpret_cast<char*>(encodedSig), elen);
-}
-
-/*************************************************************************************************/
-
-struct api::impl {
-    impl(
-         boost::asio::io_context &ioctx
-        ,std::string host
-        ,std::string port
-        ,std::string pk
-        ,std::string sk
-        ,std::size_t timeout
-        ,std::string client_api_string
-    )
-        :m_ioctx{ioctx}
-        ,m_host{std::move(host)}
-        ,m_port{std::move(port)}
-        ,m_pk{std::move(pk)}
-        ,m_sk{std::move(sk)}
-        ,m_timeout{timeout}
-        ,m_client_api_string{std::move(client_api_string)}
-        ,m_write_in_process{}
-        ,m_async_requests{}
-        ,m_ssl_ctx{boost::asio::ssl::context::sslv23_client}
-        ,m_resolver{m_ioctx}
-    {}
-
-    using val_type = boost::variant<std::size_t, const char *>;
-    using kv_type = std::pair<const char *, val_type>;
-    using init_list_type = std::initializer_list<kv_type>;
-
-    template<
-         typename CB
-        ,typename Args = typename boost::callable_traits::args<CB>::type
-        ,typename R = typename std::tuple_element<3, Args>::type
-    >
-    api::result<R>
-    post(bool _signed, const char *target, boost::beast::http::verb action, const std::initializer_list<kv_type> &map, CB cb) {
-        static_assert(std::tuple_size<Args>::value == 4, "callback signature is wrong!");
-
-        auto is_valid_value = [](const val_type &v) -> bool {
-            if ( const auto *p = boost::get<const char *>(&v) ) {
-                return *p != nullptr;
-            }
-            if ( const auto *p = boost::get<std::size_t>(&v) ) {
-                return *p != 0u;
-            }
-
-            assert(!"unreachable");
-
-            return false;
-        };
-
-        auto to_string = [](char *buf, std::size_t bufsize, const val_type &v) -> const char* {
-            if ( const auto *p = boost::get<const char *>(&v) ) {
-                return *p;
-            }
-            if ( const auto *p = boost::get<std::size_t>(&v) ) {
-                std::snprintf(buf, bufsize, "%zu", *p);
-
-                return buf;
-            }
-
-            assert(!"unreachable");
-
-            return buf;
-        };
-
-        auto is_html = [](const char *str) -> bool {
-            return std::strstr(str, "<HTML>")
-                || std::strstr(str, "<HEAD>")
-                || std::strstr(str, "<BODY>")
-            ;
-        };
-
-        std::string starget = target;
-        std::string data;
-        for ( const auto &it: map ) {
-            if ( is_valid_value(it.second) ) {
-                if ( !data.empty() ) {
-                    data += "&";
-                }
-                data += it.first;
-                data += "=";
-
-                char buf[32];
-                data += to_string(buf, sizeof(buf), it.second);
-            }
+        std::uint64_t get_current_ms_epoch()
+        {
+            return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                  std::chrono::system_clock::now().time_since_epoch())
+                                                  .count());
         }
 
-        // Kraken: private endpoints are signed POSTs with a `nonce` in the body.
-        std::string api_sign;
-        if ( _signed ) {
-            assert(!m_pk.empty() && !m_sk.empty());
+        std::string b2a_hex(const std::uint8_t *p, std::size_t n)
+        {
+            static const char hex[] = "0123456789abcdef";
+            std::string res;
+            res.reserve(n * 2);
 
-            const std::string nonce = std::to_string(get_kraken_nonce());
-            std::string body = "nonce=";
-            body += nonce;
-            if ( !data.empty() ) {
-                body += "&";
-                body += data;
-            }
-            data = std::move(body);
-
-            api_sign = kraken_signature(std::string{target}, nonce, data, m_sk);
-        }
-
-        bool get_delete =
-            action == boost::beast::http::verb::get ||
-            action == boost::beast::http::verb::delete_
-        ;
-        if ( get_delete && !data.empty() ) {
-            starget += "?";
-            starget += data;
-            data.clear();
-        }
-
-        api::result<R> res{};
-        if ( !cb ) {
-            try {
-                api::result<std::string> r = sync_post(starget.c_str(), action, std::move(data), api_sign);
-                if ( !r.v.empty() && is_html(r.v.c_str()) ) {
-                    r.errmsg = std::move(r.v);
-                } else {
-                    std::string strbuf = std::move(r.v);
-                    const flatjson::fjson json{strbuf.c_str(), strbuf.length()};
-                    if ( json.error() != flatjson::FJ_EC_OK ) {
-                        res.ec = json.error();
-                        __MAKE_ERRMSG(res, json.error_string())
-                        res.reply.clear();
-
-                        return res;
-                    }
-
-                    if ( json.is_object() && binapi::rest::is_api_error(json) ) {
-                        auto error = binapi::rest::construct_error(json);
-                        res.ec = error.first;
-                        __MAKE_ERRMSG(res, error.second)
-                        res.reply.clear();
-
-                        return res;
-                    } else {
-                        res.v = R::construct(json);
-                    }
-                }
-            } catch (const std::exception &ex) {
-                __MAKE_ERRMSG(res, ex.what())
+            for (auto end = p + n; p != end; ++p)
+            {
+                const std::uint8_t v = (*p);
+                res += hex[(v >> 4) & 0x0F];
+                res += hex[v & 0x0F];
             }
 
             return res;
-        } else {
-            using invoker_type = detail::invoker<typename boost::callable_traits::return_type<CB>::type, R, CB>;
-            async_req_item item{
-                 starget
-                ,action
-                ,std::move(data)
-                ,std::move(api_sign)
-                ,std::make_shared<invoker_type>(std::move(cb))
+        }
+
+        std::string hmac_sha256(const char *key, std::size_t klen, const char *data, std::size_t dlen)
+        {
+            std::uint8_t digest[EVP_MAX_MD_SIZE];
+            std::uint32_t dilen{};
+
+            auto p = ::HMAC(
+                ::EVP_sha256(), key, klen, (std::uint8_t *)data, dlen, digest, &dilen);
+            assert(p);
+
+            return b2a_hex(digest, dilen);
+        }
+
+        /*************************************************************************************************/
+        // Kraken REST signing helpers.
+        //
+        // Kraken private endpoints are authenticated as:
+        //   API-Sign = base64( HMAC_SHA512( base64decode(secret),
+        //                                   path_bytes ++ SHA256(nonce ++ postdata) ) )
+        // with headers `API-Key` (the public key) and `API-Sign`, and a `nonce` field in
+        // the urlencoded POST body.
+        /*************************************************************************************************/
+
+        std::string sha256_raw(const std::string &in)
+        {
+            std::uint8_t digest[SHA256_DIGEST_LENGTH];
+            ::SHA256(reinterpret_cast<const std::uint8_t *>(in.data()), in.size(), digest);
+
+            return std::string(reinterpret_cast<const char *>(digest), SHA256_DIGEST_LENGTH);
+        }
+
+        std::string hmac_sha512_raw(const std::string &key, const std::string &data)
+        {
+            std::uint8_t digest[EVP_MAX_MD_SIZE];
+            std::uint32_t dilen{};
+
+            ::HMAC(
+                ::EVP_sha512(), key.data(), key.size(), reinterpret_cast<const std::uint8_t *>(data.data()), data.size(), digest, &dilen);
+
+            return std::string(reinterpret_cast<const char *>(digest), dilen);
+        }
+
+        std::string base64_encode(const std::string &in)
+        {
+            if (in.empty())
+            {
+                return {};
+            }
+
+            std::string out(4u * ((in.size() + 2u) / 3u), '\0');
+            const int len = ::EVP_EncodeBlock(
+                reinterpret_cast<std::uint8_t *>(&out[0]), reinterpret_cast<const std::uint8_t *>(in.data()), static_cast<int>(in.size()));
+            out.resize(len < 0 ? 0u : static_cast<std::size_t>(len));
+
+            return out;
+        }
+
+        std::string base64_decode(const std::string &in)
+        {
+            if (in.empty())
+            {
+                return {};
+            }
+
+            std::string out(3u * (in.size() / 4u), '\0');
+            int len = ::EVP_DecodeBlock(
+                reinterpret_cast<std::uint8_t *>(&out[0]), reinterpret_cast<const std::uint8_t *>(in.data()), static_cast<int>(in.size()));
+            if (len < 0)
+            {
+                return {};
+            }
+            // EVP_DecodeBlock always emits a multiple of 3 bytes; trim the '=' padding.
+            if (in.size() >= 1u && in[in.size() - 1u] == '=')
+            {
+                --len;
+            }
+            if (in.size() >= 2u && in[in.size() - 2u] == '=')
+            {
+                --len;
+            }
+            out.resize(static_cast<std::size_t>(len));
+
+            return out;
+        }
+
+        // monotonically increasing nonce (milliseconds since epoch, bumped on collision)
+        std::uint64_t get_kraken_nonce()
+        {
+            static std::uint64_t last = 0u;
+            std::uint64_t now = get_current_ms_epoch();
+            if (now <= last)
+            {
+                now = last + 1u;
+            }
+            last = now;
+
+            return now;
+        }
+
+        std::string kraken_signature(
+            const std::string &path, const std::string &nonce, const std::string &postdata, const std::string &b64secret)
+        {
+            const std::string sha = sha256_raw(nonce + postdata);
+            const std::string message = path + sha;
+            const std::string mac = hmac_sha512_raw(base64_decode(b64secret), message);
+
+            return base64_encode(mac);
+        }
+
+        /*************************************************************************************************/
+
+        // unused for now
+        bool verify_signature(const unsigned char *sig, std::size_t slen, const char *data, std::size_t dlen)
+        {
+            bool result = true;
+            auto pubkeyfile = BIO_new_file("testnet.pub.pem", "r");
+            auto vkey = PEM_read_bio_PUBKEY(pubkeyfile, nullptr, nullptr, nullptr);
+
+            auto ctx = EVP_MD_CTX_new();
+            auto md = ::EVP_sha256();
+            assert(pubkeyfile && vkey && ctx && md);
+
+            if (1 != (EVP_DigestInit_ex(ctx, md, nullptr) &&
+                      EVP_DigestVerifyInit(ctx, nullptr, md, nullptr, vkey) &&
+                      EVP_DigestVerifyUpdate(ctx, data, dlen) &&
+                      EVP_DigestVerifyFinal(ctx, sig, slen)))
+            {
+                std::cerr << "EVP_DigestVerify* failed!" << std::endl;
+                result = false;
+            }
+
+            if (pubkeyfile)
+                BIO_free(pubkeyfile);
+            if (ctx)
+                EVP_MD_CTX_free(ctx);
+            if (vkey)
+                EVP_PKEY_free(vkey);
+
+            return result;
+        }
+
+        // unused for now
+        std::string rsa_sha256(const char *privkeyfile, std::size_t /*pklen*/, const char *data, std::size_t dlen)
+        {
+            static EVP_PKEY *pkey = nullptr;
+            if (!pkey)
+            {
+                auto keybp = BIO_new_file(privkeyfile, "r");
+                pkey = EVP_PKEY_new();
+                pkey = PEM_read_bio_PrivateKey(keybp, nullptr, nullptr, nullptr);
+
+                if (keybp)
+                    BIO_free(keybp);
+            }
+            assert(pkey);
+
+            auto mdctx = EVP_MD_CTX_new();
+            std::size_t req = 0, slen = 0;
+            if (1 != (EVP_DigestSignInit(mdctx, nullptr, ::EVP_sha256(), nullptr, pkey) &&
+                      EVP_DigestSignUpdate(mdctx, data, dlen) &&
+                      EVP_DigestSignFinal(mdctx, nullptr, &req)))
+            {
+                std::cerr << "EVP_DigestSign* failed!" << std::endl;
+                exit(1);
+            }
+
+            unsigned char *signature;
+            slen = req;
+            signature = static_cast<unsigned char *>(OPENSSL_malloc(req));
+            if (1 != EVP_DigestSignFinal(mdctx, signature, &slen))
+            {
+                std::cerr << "Digest Final (2) failed" << std::endl;
+            }
+            assert(slen == req);
+
+            // Uncomment to verify if priv/pub keypairs are working together
+            // assert( verify_signature(signature, slen, data, dlen ) );
+
+            unsigned char encodedSig[512];
+            int elen = EVP_EncodeBlock(encodedSig, signature, slen);
+
+            if (mdctx)
+                EVP_MD_CTX_free(mdctx);
+            if (signature)
+                OPENSSL_free(signature);
+
+            return std::string(reinterpret_cast<char *>(encodedSig), elen);
+        }
+
+        /*************************************************************************************************/
+
+        struct api::impl
+        {
+            impl(
+                boost::asio::io_context &ioctx, std::string host, std::string port, std::string pk, std::string sk, std::size_t timeout, std::string client_api_string)
+                : m_ioctx{ioctx}, m_host{std::move(host)}, m_port{std::move(port)}, m_pk{std::move(pk)}, m_sk{std::move(sk)}, m_timeout{timeout}, m_client_api_string{std::move(client_api_string)}, m_write_in_process{}, m_async_requests{}, m_ssl_ctx{boost::asio::ssl::context::sslv23_client}, m_resolver{m_ioctx}
+            {
+            }
+
+            using val_type = boost::variant<std::size_t, const char *>;
+            using kv_type = std::pair<const char *, val_type>;
+            using init_list_type = std::initializer_list<kv_type>;
+
+            template <
+                typename CB, typename Args = typename boost::callable_traits::args<CB>::type, typename R = typename std::tuple_element<3, Args>::type>
+            api::result<R>
+            post(bool _signed, const char *target, boost::beast::http::verb action, const std::initializer_list<kv_type> &map, CB cb)
+            {
+                static_assert(std::tuple_size<Args>::value == 4, "callback signature is wrong!");
+
+                auto is_valid_value = [](const val_type &v) -> bool
+                {
+                    if (const auto *p = boost::get<const char *>(&v))
+                    {
+                        return *p != nullptr;
+                    }
+                    if (const auto *p = boost::get<std::size_t>(&v))
+                    {
+                        return *p != 0u;
+                    }
+
+                    assert(!"unreachable");
+
+                    return false;
+                };
+
+                auto to_string = [](char *buf, std::size_t bufsize, const val_type &v) -> const char *
+                {
+                    if (const auto *p = boost::get<const char *>(&v))
+                    {
+                        return *p;
+                    }
+                    if (const auto *p = boost::get<std::size_t>(&v))
+                    {
+                        std::snprintf(buf, bufsize, "%zu", *p);
+
+                        return buf;
+                    }
+
+                    assert(!"unreachable");
+
+                    return buf;
+                };
+
+                auto is_html = [](const char *str) -> bool
+                {
+                    return std::strstr(str, "<HTML>") || std::strstr(str, "<HEAD>") || std::strstr(str, "<BODY>");
+                };
+
+                std::string starget = target;
+                std::string data;
+                for (const auto &it : map)
+                {
+                    if (is_valid_value(it.second))
+                    {
+                        if (!data.empty())
+                        {
+                            data += "&";
+                        }
+                        data += it.first;
+                        data += "=";
+
+                        char buf[32];
+                        data += to_string(buf, sizeof(buf), it.second);
+                    }
+                }
+
+                // Kraken: private endpoints are signed POSTs with a `nonce` in the body.
+                std::string api_sign;
+                if (_signed)
+                {
+                    assert(!m_pk.empty() && !m_sk.empty());
+
+                    const std::string nonce = std::to_string(get_kraken_nonce());
+                    std::string body = "nonce=";
+                    body += nonce;
+                    if (!data.empty())
+                    {
+                        body += "&";
+                        body += data;
+                    }
+                    data = std::move(body);
+
+                    api_sign = kraken_signature(std::string{target}, nonce, data, m_sk);
+                }
+
+                bool get_delete =
+                    action == boost::beast::http::verb::get ||
+                    action == boost::beast::http::verb::delete_;
+                if (get_delete && !data.empty())
+                {
+                    starget += "?";
+                    starget += data;
+                    data.clear();
+                }
+
+                api::result<R> res{};
+                if (!cb)
+                {
+                    try
+                    {
+                        api::result<std::string> r = sync_post(starget.c_str(), action, std::move(data), api_sign);
+                        if (!r.v.empty() && is_html(r.v.c_str()))
+                        {
+                            r.errmsg = std::move(r.v);
+                        }
+                        else
+                        {
+                            std::string strbuf = std::move(r.v);
+                            const flatjson::fjson json{strbuf.c_str(), strbuf.length()};
+                            if (json.error() != flatjson::FJ_EC_OK)
+                            {
+                                res.ec = json.error();
+                                __MAKE_ERRMSG(res, json.error_string())
+                                res.reply.clear();
+
+                                return res;
+                            }
+
+                            if (json.is_object() && krapi::rest::is_api_error(json))
+                            {
+                                auto error = krapi::rest::construct_error(json);
+                                res.ec = error.first;
+                                __MAKE_ERRMSG(res, error.second)
+                                res.reply.clear();
+
+                                return res;
+                            }
+                            else
+                            {
+                                res.v = R::construct(json);
+                            }
+                        }
+                    }
+                    catch (const std::exception &ex)
+                    {
+                        __MAKE_ERRMSG(res, ex.what())
+                    }
+
+                    return res;
+                }
+                else
+                {
+                    using invoker_type = detail::invoker<typename boost::callable_traits::return_type<CB>::type, R, CB>;
+                    async_req_item item{
+                        starget, action, std::move(data), std::move(api_sign), std::make_shared<invoker_type>(std::move(cb))};
+                    m_async_requests.push(std::move(item));
+
+                    async_post();
+                }
+
+                return res;
+            }
+
+            api::result<std::string>
+            sync_post(const char *target, boost::beast::http::verb action, std::string data, const std::string &api_sign)
+            {
+                api::result<std::string> res{};
+
+                boost::asio::ssl::stream<boost::asio::ip::tcp::socket> ssl_stream(m_ioctx, m_ssl_ctx);
+
+                if (!SSL_set_tlsext_host_name(ssl_stream.native_handle(), m_host.c_str()))
+                {
+                    boost::system::error_code ec{static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category()};
+                    std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+
+                    __MAKE_ERRMSG(res, ec.message());
+                    return res;
+                }
+
+                boost::system::error_code ec;
+                auto const results = m_resolver.resolve(m_host, m_port, ec);
+                if (ec)
+                {
+                    std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+
+                    __MAKE_ERRMSG(res, ec.message());
+                    return res;
+                }
+
+                boost::asio::connect(ssl_stream.next_layer(), results.begin(), results.end(), ec);
+                if (ec)
+                {
+                    std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+
+                    __MAKE_ERRMSG(res, ec.message());
+                    return res;
+                }
+
+                ssl_stream.handshake(boost::asio::ssl::stream_base::client, ec);
+                if (ec)
+                {
+                    std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+
+                    __MAKE_ERRMSG(res, ec.message());
+                    return res;
+                }
+
+                boost::beast::http::request<boost::beast::http::string_body> req;
+                req.target(target);
+                req.version(11);
+
+                req.method(action);
+                if (action != boost::beast::http::verb::get)
+                {
+                    req.body() = std::move(data);
+                    req.set(boost::beast::http::field::content_length, std::to_string(req.body().length()));
+                }
+
+                if (!m_pk.empty())
+                {
+                    req.insert("API-Key", m_pk);
+                }
+                if (!api_sign.empty())
+                {
+                    req.insert("API-Sign", api_sign);
+                }
+                req.set(boost::beast::http::field::host, m_host);
+                req.set(boost::beast::http::field::user_agent, m_client_api_string);
+                req.set(boost::beast::http::field::content_type, "application/x-www-form-urlencoded");
+
+                boost::beast::http::write(ssl_stream, req, ec);
+                if (ec)
+                {
+                    std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+
+                    __MAKE_ERRMSG(res, ec.message());
+                    return res;
+                }
+
+                boost::beast::flat_buffer buffer;
+                boost::beast::http::response<boost::beast::http::string_body> bres;
+
+                boost::beast::http::read(ssl_stream, buffer, bres, ec);
+                if (ec)
+                {
+                    std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+
+                    __MAKE_ERRMSG(res, ec.message());
+                    return res;
+                }
+
+                res.v = std::move(bres.body());
+                //        std::cout << target << " REPLY:\n" << res.v << std::endl << std::endl;
+
+                ssl_stream.shutdown(ec);
+
+                return res;
+            }
+
+            using request_ptr = std::unique_ptr<boost::beast::http::request<boost::beast::http::string_body>>;
+            using request_type = typename request_ptr::element_type;
+            using response_ptr = std::unique_ptr<boost::beast::http::response<boost::beast::http::string_body>>;
+            using response_type = typename response_ptr::element_type;
+            using ssl_socket_ptr = std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>;
+            using ssl_socket_type = typename ssl_socket_ptr::element_type;
+
+            void async_post()
+            {
+                if (m_write_in_process)
+                {
+                    return;
+                }
+
+                m_write_in_process = true;
+
+                auto &front = m_async_requests.front();
+                auto action = front.action;
+                std::string data = std::move(front.data);
+                std::string target = front.target;
+                std::string sign = std::move(front.sign);
+                // std::cout << "async_post(): target=" << target << std::endl;
+
+                auto req = std::make_unique<request_type>();
+                req->version(11);
+                req->method(action);
+                if (action != boost::beast::http::verb::get)
+                {
+                    req->body() = std::move(data);
+                    req->set(boost::beast::http::field::content_length, std::to_string(req->body().length()));
+                }
+
+                req->target(target);
+                if (!m_pk.empty())
+                {
+                    req->insert("API-Key", m_pk);
+                }
+                if (!sign.empty())
+                {
+                    req->insert("API-Sign", sign);
+                }
+                req->set(boost::beast::http::field::host, m_host);
+                req->set(boost::beast::http::field::user_agent, m_client_api_string);
+                req->set(boost::beast::http::field::content_type, "application/x-www-form-urlencoded");
+
+                // std::cout << target << " REQUEST:\n" << m_req << std::endl;
+
+                // Look up the domain name
+                m_resolver.async_resolve(
+                    m_host, m_port, [this, req = std::move(req)](const boost::system::error_code &ec, boost::asio::ip::tcp::resolver::results_type res) mutable
+                    { on_resolve(ec, std::move(req), std::move(res)); });
+            }
+            void on_resolve(
+                const boost::system::error_code &ec, request_ptr req, boost::asio::ip::tcp::resolver::results_type results)
+            {
+                if (ec)
+                {
+                    m_write_in_process = false;
+                    process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
+                    return;
+                }
+
+                ssl_socket_ptr ssl_socket = std::make_unique<ssl_socket_type>(m_ioctx, m_ssl_ctx);
+
+                if (!SSL_set_tlsext_host_name(ssl_socket->native_handle(), m_host.c_str()))
+                {
+                    boost::system::error_code ec2{static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category()};
+                    std::cerr << __MESSAGE("msg=" << ec2.message()) << std::endl;
+
+                    return;
+                }
+
+                auto sptr = ssl_socket.get();
+
+                boost::asio::async_connect(
+                    sptr->next_layer(), results.begin(), results.end(), [this, req = std::move(req), ssl_socket = std::move(ssl_socket)](const boost::system::error_code &ec, auto) mutable
+                    { on_connect(ec, std::move(req), std::move(ssl_socket)); });
+            }
+            void on_connect(
+                const boost::system::error_code &ec, request_ptr req, ssl_socket_ptr ssl_socket)
+            {
+                if (ec)
+                {
+                    m_write_in_process = false;
+                    process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
+                    return;
+                }
+
+                auto sptr = ssl_socket.get();
+
+                // Perform the SSL handshake
+                sptr->async_handshake(
+                    boost::asio::ssl::stream_base::client, [this, req = std::move(req), ssl_socket = std::move(ssl_socket)](const boost::system::error_code &ec) mutable
+                    { on_handshake(ec, std::move(req), std::move(ssl_socket)); });
+            }
+            void on_handshake(
+                const boost::system::error_code &ec, request_ptr req, ssl_socket_ptr ssl_socket)
+            {
+                if (ec)
+                {
+                    m_write_in_process = false;
+                    process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
+                    return;
+                }
+
+                auto *request_ptr = req.get();
+                auto *socket_ptr = ssl_socket.get();
+
+                // Send the HTTP request to the remote host
+                boost::beast::http::async_write(
+                    *socket_ptr, *request_ptr, [this, req = std::move(req), ssl_socket = std::move(ssl_socket)](const boost::system::error_code &ec, std::size_t wr) mutable
+                    { on_write(ec, std::move(req), std::move(ssl_socket), wr); });
+            }
+            void on_write(const boost::system::error_code &ec, request_ptr req, ssl_socket_ptr ssl_socket, std::size_t wr)
+            {
+                boost::ignore_unused(wr);
+                boost::ignore_unused(req);
+
+                if (ec)
+                {
+                    m_write_in_process = false;
+                    process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
+                    return;
+                }
+
+                auto resp = std::make_unique<response_type>();
+                auto *resp_ptr = resp.get();
+                auto *socket_ptr = ssl_socket.get();
+
+                // Receive the HTTP response
+                boost::beast::http::async_read(
+                    *socket_ptr, m_buffer, *resp_ptr, [this, resp = std::move(resp), ssl_socket = std::move(ssl_socket)](const boost::system::error_code &ec, std::size_t rd) mutable
+                    { on_read(ec, std::move(resp), std::move(ssl_socket), rd); });
+            }
+            void on_read(const boost::system::error_code &ec, response_ptr resp, ssl_socket_ptr ssl_socket, std::size_t rd)
+            {
+                boost::ignore_unused(rd);
+
+                if (ec)
+                {
+                    m_write_in_process = false;
+                    process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
+                    return;
+                }
+
+                auto *socket_ptr = ssl_socket.get();
+
+                socket_ptr->async_shutdown(
+                    [this, resp = std::move(resp), ssl_socket = std::move(ssl_socket)](const boost::system::error_code &ec) mutable
+                    { on_shutdown(ec, std::move(resp), std::move(ssl_socket)); });
+            }
+            void on_shutdown(const boost::system::error_code &ec, response_ptr resp, ssl_socket_ptr ssl_socket)
+            {
+                boost::ignore_unused(ec);
+                boost::ignore_unused(ssl_socket);
+
+                std::string body = std::move(resp->body());
+                process_reply(__MAKE_FILELINE, 0, std::string{}, std::move(body));
+
+                m_write_in_process = false;
+
+                if (!m_async_requests.empty())
+                {
+                    async_post();
+                }
+            }
+
+            void process_reply(const char *fl, int ec, std::string errmsg, std::string body)
+            {
+                assert(!m_async_requests.empty());
+
+                __TRY_BLOCK()
+                {
+                    const auto item = std::move(m_async_requests.front());
+                    m_async_requests.pop();
+
+                    // std::cout << "process_reply(): target=" << item.target << std::endl;
+                    item.invoker->invoke(fl, ec, std::move(errmsg), body.c_str(), body.size());
+                }
+                __CATCH_BLOCK(
+                    std::cout,
+                    (std::exception))
+            }
+
+            boost::asio::io_context &m_ioctx;
+            const std::string m_host;
+            const std::string m_port;
+            const std::string m_pk;
+            const std::string m_sk;
+            const std::size_t m_timeout;
+            const std::string m_client_api_string;
+
+            bool m_write_in_process;
+            struct async_req_item
+            {
+                std::string target;
+                boost::beast::http::verb action;
+                std::string data;
+                std::string sign;
+                detail::invoker_ptr invoker;
             };
-            m_async_requests.push(std::move(item));
+            std::queue<async_req_item> m_async_requests;
+            boost::asio::ssl::context m_ssl_ctx;
+            boost::asio::ip::tcp::resolver m_resolver;
+            boost::beast::flat_buffer m_buffer; // (Must persist between reads)
+        };
 
-            async_post();
+        /*************************************************************************************************/
+
+        api::api(
+            boost::asio::io_context &ioctx, std::string host, std::string port, std::string pk, std::string sk, std::size_t timeout, std::string client_api_string)
+            : pimpl{std::make_unique<impl>(
+                  ioctx, std::move(host), std::move(port), std::move(pk), std::move(sk), timeout, std::move(client_api_string))}
+        {
         }
 
-        return res;
-    }
-
-    api::result<std::string>
-    sync_post(const char *target, boost::beast::http::verb action, std::string data, const std::string &api_sign) {
-        api::result<std::string> res{};
-
-        boost::asio::ssl::stream<boost::asio::ip::tcp::socket> ssl_stream(m_ioctx, m_ssl_ctx);
-
-        if( !SSL_set_tlsext_host_name(ssl_stream.native_handle(), m_host.c_str()) ) {
-            boost::system::error_code ec{static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category()};
-            std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
-
-            __MAKE_ERRMSG(res, ec.message());
-            return res;
+        api::~api()
+        {
         }
 
-        boost::system::error_code ec;
-        auto const results = m_resolver.resolve(m_host, m_port, ec);
-        if ( ec ) {
-            std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+        /*************************************************************************************************/
 
-            __MAKE_ERRMSG(res, ec.message());
-            return res;
+        api::result<server_time_t> api::server_time(server_time_cb cb)
+        {
+            return pimpl->post(false, "/0/public/Time", boost::beast::http::verb::get, {}, std::move(cb));
         }
 
-        boost::asio::connect(ssl_stream.next_layer(), results.begin(), results.end(), ec);
-        if ( ec ) {
-            std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+        /*************************************************************************************************/
 
-            __MAKE_ERRMSG(res, ec.message());
-            return res;
+        api::result<tickers_t> api::ticker(const char *pair, tickers_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"pair", pair}};
+
+            return pimpl->post(false, "/0/public/Ticker", boost::beast::http::verb::get, map, std::move(cb));
         }
 
-        ssl_stream.handshake(boost::asio::ssl::stream_base::client, ec);
-        if ( ec ) {
-            std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
-
-            __MAKE_ERRMSG(res, ec.message());
-            return res;
+        api::result<tickers_t> api::tickers(tickers_cb cb)
+        {
+            return pimpl->post(false, "/0/public/Ticker", boost::beast::http::verb::get, {}, std::move(cb));
         }
 
-        boost::beast::http::request<boost::beast::http::string_body> req;
-        req.target(target);
-        req.version(11);
+        /*************************************************************************************************/
 
-        req.method(action);
-        if ( action != boost::beast::http::verb::get ) {
-            req.body() = std::move(data);
-            req.set(boost::beast::http::field::content_length, std::to_string(req.body().length()));
+        api::result<asset_pairs_t> api::asset_pairs(asset_pairs_cb cb)
+        {
+            return pimpl->post(false, "/0/public/AssetPairs", boost::beast::http::verb::get, {}, std::move(cb));
         }
 
-        if ( !m_pk.empty() ) {
-            req.insert("API-Key", m_pk);
-        }
-        if ( !api_sign.empty() ) {
-            req.insert("API-Sign", api_sign);
-        }
-        req.set(boost::beast::http::field::host, m_host);
-        req.set(boost::beast::http::field::user_agent, m_client_api_string);
-        req.set(boost::beast::http::field::content_type, "application/x-www-form-urlencoded");
+        api::result<asset_pairs_t> api::asset_pairs(const char *pair, asset_pairs_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"pair", pair}};
 
-        boost::beast::http::write(ssl_stream, req, ec);
-        if ( ec ) {
-            std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
-
-            __MAKE_ERRMSG(res, ec.message());
-            return res;
+            return pimpl->post(false, "/0/public/AssetPairs", boost::beast::http::verb::get, map, std::move(cb));
         }
 
-        boost::beast::flat_buffer buffer;
-        boost::beast::http::response<boost::beast::http::string_body> bres;
+        /*************************************************************************************************/
 
-        boost::beast::http::read(ssl_stream, buffer, bres, ec);
-        if ( ec ) {
-            std::cerr << __MESSAGE("msg=" << ec.message()) << std::endl;
+        api::result<order_book_t> api::order_book(const char *pair, std::size_t count, order_book_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"pair", pair}, {"count", count}};
 
-            __MAKE_ERRMSG(res, ec.message());
-            return res;
+            return pimpl->post(false, "/0/public/Depth", boost::beast::http::verb::get, map, std::move(cb));
         }
 
-        res.v = std::move(bres.body());
-//        std::cout << target << " REPLY:\n" << res.v << std::endl << std::endl;
+        /*************************************************************************************************/
 
-        ssl_stream.shutdown(ec);
+        api::result<ohlc_t> api::ohlc(const char *pair, std::size_t interval, std::size_t since, ohlc_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"pair", pair}, {"interval", interval}, {"since", since}};
 
-        return res;
-    }
-
-    using request_ptr = std::unique_ptr<boost::beast::http::request<boost::beast::http::string_body>>;
-    using request_type = typename request_ptr::element_type;
-    using response_ptr = std::unique_ptr<boost::beast::http::response<boost::beast::http::string_body>>;
-    using response_type = typename response_ptr::element_type;
-    using ssl_socket_ptr = std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>;
-    using ssl_socket_type = typename ssl_socket_ptr::element_type;
-
-    void async_post() {
-        if ( m_write_in_process ) {
-            return;
+            return pimpl->post(false, "/0/public/OHLC", boost::beast::http::verb::get, map, std::move(cb));
         }
 
-        m_write_in_process = true;
+        /*************************************************************************************************/
 
-        auto &front = m_async_requests.front();
-        auto action = front.action;
-        std::string data = std::move(front.data);
-        std::string target = front.target;
-        std::string sign = std::move(front.sign);
-        //std::cout << "async_post(): target=" << target << std::endl;
+        api::result<recent_trades_t> api::recent_trades(const char *pair, const char *since, recent_trades_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"pair", pair}, {"since", since}};
 
-        auto req = std::make_unique<request_type>();
-        req->version(11);
-        req->method(action);
-        if ( action != boost::beast::http::verb::get ) {
-            req->body() = std::move(data);
-            req->set(boost::beast::http::field::content_length, std::to_string(req->body().length()));
+            return pimpl->post(false, "/0/public/Trades", boost::beast::http::verb::get, map, std::move(cb));
         }
 
-        req->target(target);
-        if ( !m_pk.empty() ) {
-            req->insert("API-Key", m_pk);
-        }
-        if ( !sign.empty() ) {
-            req->insert("API-Sign", sign);
-        }
-        req->set(boost::beast::http::field::host, m_host);
-        req->set(boost::beast::http::field::user_agent, m_client_api_string);
-        req->set(boost::beast::http::field::content_type, "application/x-www-form-urlencoded");
+        /*************************************************************************************************/
 
-        //std::cout << target << " REQUEST:\n" << m_req << std::endl;
+        api::result<add_order_t> api::add_order(
+            const std::string &pair, const std::string &type, const std::string &ordertype, const std::string &volume, const std::string &price, bool validate, add_order_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"pair", pair.c_str()}, {"type", type.c_str()}, {"ordertype", ordertype.c_str()}, {"volume", volume.c_str()}, {"price", price.empty() ? nullptr : price.c_str()}, {"validate", validate ? "true" : nullptr}};
 
-        // Look up the domain name
-        m_resolver.async_resolve(
-             m_host
-            ,m_port
-            ,[this, req=std::move(req)]
-             (const boost::system::error_code &ec, boost::asio::ip::tcp::resolver::results_type res) mutable
-             { on_resolve(ec, std::move(req), std::move(res)); }
-        );
-    }
-    void on_resolve(
-         const boost::system::error_code &ec
-        ,request_ptr req
-        ,boost::asio::ip::tcp::resolver::results_type results)
-    {
-        if ( ec ) {
-            m_write_in_process = false;
-            process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
-            return;
+            return pimpl->post(true, "/0/private/AddOrder", boost::beast::http::verb::post, map, std::move(cb));
         }
 
-        ssl_socket_ptr ssl_socket = std::make_unique<ssl_socket_type>(m_ioctx, m_ssl_ctx);
+        /*************************************************************************************************/
 
-        if(! SSL_set_tlsext_host_name(ssl_socket->native_handle(), m_host.c_str())) {
-            boost::system::error_code ec2{static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category()};
-            std::cerr << __MESSAGE("msg=" << ec2.message()) << std::endl;
+        api::result<cancel_order_t> api::cancel_order(const std::string &txid, cancel_order_resp_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"txid", txid.c_str()}};
 
-            return;
+            return pimpl->post(true, "/0/private/CancelOrder", boost::beast::http::verb::post, map, std::move(cb));
         }
 
-        auto sptr = ssl_socket.get();
+        /*************************************************************************************************/
 
-        boost::asio::async_connect(
-             sptr->next_layer()
-            ,results.begin()
-            ,results.end()
-            ,[this, req=std::move(req), ssl_socket=std::move(ssl_socket)]
-             (const boost::system::error_code &ec, auto) mutable
-             { on_connect(ec, std::move(req), std::move(ssl_socket)); }
-        );
-    }
-    void on_connect(
-         const boost::system::error_code &ec
-        ,request_ptr req
-        ,ssl_socket_ptr ssl_socket)
-    {
-        if ( ec ) {
-            m_write_in_process = false;
-            process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
-            return;
+        api::result<open_orders_t> api::open_orders(open_orders_resp_cb cb)
+        {
+            return pimpl->post(true, "/0/private/OpenOrders", boost::beast::http::verb::post, {}, std::move(cb));
         }
 
-        auto sptr = ssl_socket.get();
+        /*************************************************************************************************/
 
-        // Perform the SSL handshake
-        sptr->async_handshake(
-             boost::asio::ssl::stream_base::client
-            ,[this, req=std::move(req), ssl_socket=std::move(ssl_socket)]
-             (const boost::system::error_code &ec) mutable
-             { on_handshake(ec, std::move(req), std::move(ssl_socket)); }
-        );
-    }
-    void on_handshake(
-         const boost::system::error_code &ec
-        ,request_ptr req
-        ,ssl_socket_ptr ssl_socket)
-    {
-        if ( ec ) {
-            m_write_in_process = false;
-            process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
-            return;
+        api::result<closed_orders_t> api::closed_orders(closed_orders_cb cb)
+        {
+            return pimpl->post(true, "/0/private/ClosedOrders", boost::beast::http::verb::post, {}, std::move(cb));
         }
 
-        auto *request_ptr = req.get();
-        auto *socket_ptr = ssl_socket.get();
+        /*************************************************************************************************/
 
-        // Send the HTTP request to the remote host
-        boost::beast::http::async_write(
-            *socket_ptr
-            ,*request_ptr
-            ,[this, req=std::move(req), ssl_socket=std::move(ssl_socket)]
-             (const boost::system::error_code &ec, std::size_t wr) mutable
-             { on_write(ec, std::move(req), std::move(ssl_socket), wr); }
-        );
-    }
-    void on_write(const boost::system::error_code &ec, request_ptr req, ssl_socket_ptr ssl_socket, std::size_t wr) {
-        boost::ignore_unused(wr);
-        boost::ignore_unused(req);
-
-        if ( ec ) {
-            m_write_in_process = false;
-            process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
-            return;
+        api::result<trades_history_t> api::trades_history(trades_history_cb cb)
+        {
+            return pimpl->post(true, "/0/private/TradesHistory", boost::beast::http::verb::post, {}, std::move(cb));
         }
 
-        auto resp = std::make_unique<response_type>();
-        auto *resp_ptr = resp.get();
-        auto *socket_ptr = ssl_socket.get();
+        /*************************************************************************************************/
 
-        // Receive the HTTP response
-        boost::beast::http::async_read(
-             *socket_ptr
-            ,m_buffer
-            ,*resp_ptr
-            ,[this, resp=std::move(resp), ssl_socket=std::move(ssl_socket)]
-             (const boost::system::error_code &ec, std::size_t rd) mutable
-             { on_read(ec, std::move(resp), std::move(ssl_socket), rd); }
-        );
-    }
-    void on_read(const boost::system::error_code &ec, response_ptr resp, ssl_socket_ptr ssl_socket, std::size_t rd) {
-        boost::ignore_unused(rd);
-
-        if ( ec ) {
-            m_write_in_process = false;
-            process_reply(__MAKE_FILELINE, ec.value(), ec.message(), std::string{});
-            return;
+        // signed POST to /0/private/Balance
+        api::result<balances_t> api::balances(balances_cb cb)
+        {
+            return pimpl->post(true, "/0/private/Balance", boost::beast::http::verb::post, {}, std::move(cb));
         }
 
-        auto *socket_ptr = ssl_socket.get();
+        /*************************************************************************************************/
 
-        socket_ptr->async_shutdown(
-            [this, resp=std::move(resp), ssl_socket=std::move(ssl_socket)]
-            (const boost::system::error_code &ec) mutable
-            { on_shutdown(ec, std::move(resp), std::move(ssl_socket)); }
-        );
-    }
-    void on_shutdown(const boost::system::error_code &ec, response_ptr resp, ssl_socket_ptr ssl_socket) {
-        boost::ignore_unused(ec);
-        boost::ignore_unused(ssl_socket);
-
-        std::string body = std::move(resp->body());
-        process_reply(__MAKE_FILELINE, 0, std::string{}, std::move(body));
-
-        m_write_in_process = false;
-
-        if ( !m_async_requests.empty() ) {
-            async_post();
+        api::result<system_status_t> api::system_status(system_status_cb cb)
+        {
+            return pimpl->post(false, "/0/public/SystemStatus", boost::beast::http::verb::get, {}, std::move(cb));
         }
-    }
 
-    void process_reply(const char *fl, int ec, std::string errmsg, std::string body) {
-        assert(!m_async_requests.empty());
+        /*************************************************************************************************/
 
-        __TRY_BLOCK() {
-            const auto item = std::move(m_async_requests.front());
-            m_async_requests.pop();
+        api::result<query_orders_t> api::query_orders(const std::string &txid, query_orders_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"txid", txid.c_str()}};
 
-            //std::cout << "process_reply(): target=" << item.target << std::endl;
-            item.invoker->invoke(fl, ec, std::move(errmsg), body.c_str(), body.size());
-        } __CATCH_BLOCK(
-            std::cout,
-            (std::exception)
-        )
-    }
+            return pimpl->post(true, "/0/private/QueryOrders", boost::beast::http::verb::post, map, std::move(cb));
+        }
 
-    boost::asio::io_context &m_ioctx;
-    const std::string m_host;
-    const std::string m_port;
-    const std::string m_pk;
-    const std::string m_sk;
-    const std::size_t m_timeout;
-    const std::string m_client_api_string;
+        /*************************************************************************************************/
 
-    bool m_write_in_process;
-    struct async_req_item {
-        std::string target;
-        boost::beast::http::verb action;
-        std::string data;
-        std::string sign;
-        detail::invoker_ptr invoker;
-    };
-    std::queue<async_req_item> m_async_requests;
-    boost::asio::ssl::context m_ssl_ctx;
-    boost::asio::ip::tcp::resolver m_resolver;
-    boost::beast::flat_buffer m_buffer; // (Must persist between reads)
-};
+        api::result<query_trades_t> api::query_trades(const std::string &txid, query_trades_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"txid", txid.c_str()}};
 
-/*************************************************************************************************/
+            return pimpl->post(true, "/0/private/QueryTrades", boost::beast::http::verb::post, map, std::move(cb));
+        }
 
-api::api(
-     boost::asio::io_context &ioctx
-    ,std::string host
-    ,std::string port
-    ,std::string pk
-    ,std::string sk
-    ,std::size_t timeout
-    ,std::string client_api_string
-)
-    :pimpl{std::make_unique<impl>(
-         ioctx
-        ,std::move(host)
-        ,std::move(port)
-        ,std::move(pk)
-        ,std::move(sk)
-        ,timeout
-        ,std::move(client_api_string)
-    )}
-{}
+        /*************************************************************************************************/
 
-api::~api()
-{}
+        api::result<open_positions_t> api::open_positions(bool docalcs, open_positions_cb cb)
+        {
+            const impl::init_list_type map = {
+                {"docalcs", docalcs ? "true" : nullptr}};
 
-/*************************************************************************************************/
+            return pimpl->post(true, "/0/private/OpenPositions", boost::beast::http::verb::post, map, std::move(cb));
+        }
 
-api::result<server_time_t> api::server_time(server_time_cb cb) {
-    return pimpl->post(false, "/0/public/Time", boost::beast::http::verb::get, {}, std::move(cb));
-}
+        /*************************************************************************************************/
 
-/*************************************************************************************************/
+        api::result<cancel_order_t> api::cancel_all(cancel_all_cb cb)
+        {
+            return pimpl->post(true, "/0/private/CancelAll", boost::beast::http::verb::post, {}, std::move(cb));
+        }
 
-api::result<tickers_t> api::ticker(const char *pair, tickers_cb cb) {
-    const impl::init_list_type map = {
-        {"pair", pair}
-    };
+        /*************************************************************************************************/
 
-    return pimpl->post(false, "/0/public/Ticker", boost::beast::http::verb::get, map, std::move(cb));
-}
+        api::result<cancel_all_after_t> api::cancel_all_after(std::size_t timeout, cancel_all_after_cb cb)
+        {
+            // timeout=0 is meaningful (disables the switch), so pass it as a string to
+            // ensure it is always sent (the param map omits zero-valued integers).
+            const std::string timeout_str = std::to_string(timeout);
+            const impl::init_list_type map = {
+                {"timeout", timeout_str.c_str()}};
 
-api::result<tickers_t> api::tickers(tickers_cb cb) {
-    return pimpl->post(false, "/0/public/Ticker", boost::beast::http::verb::get, {}, std::move(cb));
-}
+            return pimpl->post(true, "/0/private/CancelAllOrdersAfter", boost::beast::http::verb::post, map, std::move(cb));
+        }
 
-/*************************************************************************************************/
-
-api::result<asset_pairs_t> api::asset_pairs(asset_pairs_cb cb) {
-    return pimpl->post(false, "/0/public/AssetPairs", boost::beast::http::verb::get, {}, std::move(cb));
-}
-
-api::result<asset_pairs_t> api::asset_pairs(const char *pair, asset_pairs_cb cb) {
-    const impl::init_list_type map = {
-        {"pair", pair}
-    };
-
-    return pimpl->post(false, "/0/public/AssetPairs", boost::beast::http::verb::get, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<order_book_t> api::order_book(const char *pair, std::size_t count, order_book_cb cb) {
-    const impl::init_list_type map = {
-         {"pair", pair}
-        ,{"count", count}
-    };
-
-    return pimpl->post(false, "/0/public/Depth", boost::beast::http::verb::get, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<ohlc_t> api::ohlc(const char *pair, std::size_t interval, std::size_t since, ohlc_cb cb) {
-    const impl::init_list_type map = {
-         {"pair", pair}
-        ,{"interval", interval}
-        ,{"since", since}
-    };
-
-    return pimpl->post(false, "/0/public/OHLC", boost::beast::http::verb::get, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<recent_trades_t> api::recent_trades(const char *pair, const char *since, recent_trades_cb cb) {
-    const impl::init_list_type map = {
-         {"pair", pair}
-        ,{"since", since}
-    };
-
-    return pimpl->post(false, "/0/public/Trades", boost::beast::http::verb::get, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<add_order_t> api::add_order(
-     const std::string &pair
-    ,const std::string &type
-    ,const std::string &ordertype
-    ,const std::string &volume
-    ,const std::string &price
-    ,bool validate
-    ,add_order_cb cb
-) {
-    const impl::init_list_type map = {
-         {"pair", pair.c_str()}
-        ,{"type", type.c_str()}
-        ,{"ordertype", ordertype.c_str()}
-        ,{"volume", volume.c_str()}
-        ,{"price", price.empty() ? nullptr : price.c_str()}
-        ,{"validate", validate ? "true" : nullptr}
-    };
-
-    return pimpl->post(true, "/0/private/AddOrder", boost::beast::http::verb::post, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<cancel_order_t> api::cancel_order(const std::string &txid, cancel_order_resp_cb cb) {
-    const impl::init_list_type map = {
-        {"txid", txid.c_str()}
-    };
-
-    return pimpl->post(true, "/0/private/CancelOrder", boost::beast::http::verb::post, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<open_orders_t> api::open_orders(open_orders_resp_cb cb) {
-    return pimpl->post(true, "/0/private/OpenOrders", boost::beast::http::verb::post, {}, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<closed_orders_t> api::closed_orders(closed_orders_cb cb) {
-    return pimpl->post(true, "/0/private/ClosedOrders", boost::beast::http::verb::post, {}, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<trades_history_t> api::trades_history(trades_history_cb cb) {
-    return pimpl->post(true, "/0/private/TradesHistory", boost::beast::http::verb::post, {}, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-// signed POST to /0/private/Balance
-api::result<balances_t> api::balances(balances_cb cb) {
-    return pimpl->post(true, "/0/private/Balance", boost::beast::http::verb::post, {}, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<system_status_t> api::system_status(system_status_cb cb) {
-    return pimpl->post(false, "/0/public/SystemStatus", boost::beast::http::verb::get, {}, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<query_orders_t> api::query_orders(const std::string &txid, query_orders_cb cb) {
-    const impl::init_list_type map = {
-        {"txid", txid.c_str()}
-    };
-
-    return pimpl->post(true, "/0/private/QueryOrders", boost::beast::http::verb::post, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<query_trades_t> api::query_trades(const std::string &txid, query_trades_cb cb) {
-    const impl::init_list_type map = {
-        {"txid", txid.c_str()}
-    };
-
-    return pimpl->post(true, "/0/private/QueryTrades", boost::beast::http::verb::post, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<open_positions_t> api::open_positions(bool docalcs, open_positions_cb cb) {
-    const impl::init_list_type map = {
-        {"docalcs", docalcs ? "true" : nullptr}
-    };
-
-    return pimpl->post(true, "/0/private/OpenPositions", boost::beast::http::verb::post, map, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<cancel_order_t> api::cancel_all(cancel_all_cb cb) {
-    return pimpl->post(true, "/0/private/CancelAll", boost::beast::http::verb::post, {}, std::move(cb));
-}
-
-/*************************************************************************************************/
-
-api::result<cancel_all_after_t> api::cancel_all_after(std::size_t timeout, cancel_all_after_cb cb) {
-    // timeout=0 is meaningful (disables the switch), so pass it as a string to
-    // ensure it is always sent (the param map omits zero-valued integers).
-    const std::string timeout_str = std::to_string(timeout);
-    const impl::init_list_type map = {
-        {"timeout", timeout_str.c_str()}
-    };
-
-    return pimpl->post(true, "/0/private/CancelAllOrdersAfter", boost::beast::http::verb::post, map, std::move(cb));
-}
-
-} // ns rest
-} // ns binapi
+    } // ns rest
+} // ns krapi

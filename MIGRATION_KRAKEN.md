@@ -18,15 +18,15 @@ protocol on Kraken and are treated as a follow-up, not part of this plan.
 | Layer | File(s) | Action |
 |---|---|---|
 | TCP/TLS transport, async chain, request queue | `src/api.cpp` `sync_post`/`async_post`/`on_*` | **Keep.** Only host + headers + signing branch change. |
-| Async invoker / callbacks | `include/binapi/invoker.hpp` | **Keep as-is.** |
+| Async invoker / callbacks | `include/krapi/invoker.hpp` | **Keep as-is.** |
 | `result<T>` + `post()` dispatch | `src/api.cpp` `impl::post` | **Keep structure**, rewrite signing + error-detection calls inside it. |
-| JSON parser | `include/binapi/flatjson.hpp` | **Keep as-is.** |
+| JSON parser | `include/krapi/flatjson.hpp` | **Keep as-is.** |
 | Helpers: `double_type`, `tools`, `dtf`, `fnv1a`, `iofmt` | various | **Keep as-is.** |
 | Build | `CMakeLists.txt` | **Keep**; no new deps (OpenSSL already linked). |
-| Public endpoint methods | `include/binapi/api.hpp`, `src/api.cpp` | **Rewrite** paths/params/verbs; reshape method set to Kraken. |
+| Public endpoint methods | `include/krapi/api.hpp`, `src/api.cpp` | **Rewrite** paths/params/verbs; reshape method set to Kraken. |
 | Auth / signing | `src/api.cpp` `impl::post` + `sync_post`/`async_post` headers | **Rewrite** (Binance HMAC-SHA256 → Kraken HMAC-SHA512 scheme). |
-| Error detection | `src/errors.cpp`, `include/binapi/errors.hpp` | **Rewrite** for Kraken `{"error":[...]}`. |
-| Response types | `include/binapi/types.hpp`, `src/types.cpp` (2292 lines) | **Rewrite** the `construct()` bodies + struct fields. Bulk of the labor. |
+| Error detection | `src/errors.cpp`, `include/krapi/errors.hpp` | **Rewrite** for Kraken `{"error":[...]}`. |
+| Response types | `include/krapi/types.hpp`, `src/types.cpp` (2292 lines) | **Rewrite** the `construct()` bodies + struct fields. Bulk of the labor. |
 | Enums | `enums.cpp/.hpp` | **Adapt** order side/type/timeinforce strings to Kraken. |
 | Reports / pairslist | `reports.cpp`, `pairslist.cpp` | **Adapt** after types settle (depend on type field names). |
 | Examples + `main.cpp` | `examples/`, `main.cpp` | **Update** host/port + call sites last. |
