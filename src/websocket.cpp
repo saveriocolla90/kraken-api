@@ -36,10 +36,10 @@
 
 // #include <iostream> // TODO: comment out
 
-#define __BINAPI_CB_ON_ERROR(cb, ec) \
+#define __KRAPI_CB_ON_ERROR(cb, ec) \
     cb(__FILE__ "(" BOOST_PP_STRINGIZE(__LINE__) ")", ec.value(), ec.message(), nullptr, 0);
 
-namespace binapi
+namespace krapi
 {
     namespace ws
     {
@@ -73,7 +73,7 @@ namespace binapi
                     m_host, port, [this, cb = std::move(cb), holder = std::move(holder)](boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type res) mutable
                     {
                 if ( ec ) {
-                    if ( !m_stop_requested ) { __BINAPI_CB_ON_ERROR(cb, ec); }
+                    if ( !m_stop_requested ) { __KRAPI_CB_ON_ERROR(cb, ec); }
                 } else {
                     async_connect(std::move(res), std::move(cb), std::move(holder));
                 } });
@@ -111,7 +111,7 @@ namespace binapi
                     auto error_code = boost::beast::error_code(
                         static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category());
 
-                    __BINAPI_CB_ON_ERROR(cb, error_code);
+                    __KRAPI_CB_ON_ERROR(cb, error_code);
 
                     return;
                 }
@@ -120,7 +120,7 @@ namespace binapi
                     m_ws.next_layer().next_layer(), res, [this, cb = std::move(cb), holder = std::move(holder)](const boost::system::error_code &ec, auto /*it_or_ep*/) mutable
                     {
                 if (ec) {
-                    if (!m_stop_requested) { __BINAPI_CB_ON_ERROR(cb, ec); }
+                    if (!m_stop_requested) { __KRAPI_CB_ON_ERROR(cb, ec); }
                 } else {
                     on_connected(std::move(cb), std::move(holder));
                 } });
@@ -143,7 +143,7 @@ namespace binapi
                     boost::asio::ssl::stream_base::client, [this, cb = std::move(cb), holder = std::move(holder)](boost::system::error_code ec) mutable
                     {
                 if ( ec ) {
-                    if ( !m_stop_requested ) { __BINAPI_CB_ON_ERROR(cb, ec); }
+                    if ( !m_stop_requested ) { __KRAPI_CB_ON_ERROR(cb, ec); }
                 } else {
                     on_async_ssl_handshake(std::move(cb), std::move(holder));
                 } });
@@ -162,7 +162,7 @@ namespace binapi
                 {
                     if (!m_stop_requested)
                     {
-                        __BINAPI_CB_ON_ERROR(cb, ec);
+                        __KRAPI_CB_ON_ERROR(cb, ec);
                     }
 
                     stop();
@@ -181,7 +181,7 @@ namespace binapi
                 {
                     if (!m_stop_requested)
                     {
-                        __BINAPI_CB_ON_ERROR(cb, ec);
+                        __KRAPI_CB_ON_ERROR(cb, ec);
                     }
 
                     stop();
@@ -301,9 +301,9 @@ namespace binapi
                     }
 
                     const flatjson::fjson json{ptr, size};
-                    if (json.is_object() && binapi::rest::is_api_error(json))
+                    if (json.is_object() && krapi::rest::is_api_error(json))
                     {
-                        auto error = binapi::rest::construct_error(json);
+                        auto error = krapi::rest::construct_error(json);
                         auto ecode = error.first;
                         auto emsg = std::move(error.second);
 
@@ -618,4 +618,4 @@ namespace binapi
         /*************************************************************************************************/
 
     } // ns ws
-} // ns binapi
+} // ns krapi

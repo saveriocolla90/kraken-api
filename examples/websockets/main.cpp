@@ -21,7 +21,7 @@ int main()
 {
     boost::asio::io_context ioctx;
 
-    binapi::ws::websockets ws{
+    krapi::ws::websockets ws{
         ioctx, "stream.binance.com", "9443"};
 
     ws.klines("BTCUSDT", "1s",
@@ -39,7 +39,7 @@ int main()
                   return true;
               });
 
-    ws.part_depth("BTCUSDT", binapi::e_levels::_5, binapi::e_freq::_100ms,
+    ws.part_depth("BTCUSDT", krapi::e_levels::_5, krapi::e_freq::_100ms,
                   [](const char *fl, int ec, std::string emsg, auto depths)
                   {
                       if (ec)
@@ -54,7 +54,7 @@ int main()
                       return true;
                   });
 
-    ws.diff_depth("BTCUSDT", binapi::e_freq::_100ms,
+    ws.diff_depth("BTCUSDT", krapi::e_freq::_100ms,
                   [](const char *fl, int ec, std::string emsg, auto depths)
                   {
                       if (ec)

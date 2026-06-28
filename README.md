@@ -159,7 +159,7 @@ int main() {
 ```
 
 # WebSocket API
-The WebSocket layer (`binapi::ws`) is still the upstream **Binance** implementation
+The WebSocket layer (`krapi::ws`) is still the upstream **Binance** implementation
 and has **not** been ported to Kraken yet. It builds, but it targets Binance stream
 endpoints and message formats. Use the REST API above for Kraken.
 

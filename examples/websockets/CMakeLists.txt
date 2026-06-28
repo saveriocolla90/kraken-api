@@ -21,17 +21,17 @@ if (DEFINED ${BOOST_INCLUDE_DIR})
 endif()
 
 set(KRAPI_HEADERS
-    binapi/api.hpp
-    binapi/flatjson.hpp
-    binapi/dtf.hpp
-    binapi/double_type.hpp
-    binapi/enums.hpp
-    binapi/errors.hpp
-    binapi/invoker.hpp
-    binapi/message.hpp
-    binapi/tools.hpp
-    binapi/types.hpp
-    binapi/websocket.hpp
+    krapi/api.hpp
+    krapi/flatjson.hpp
+    krapi/dtf.hpp
+    krapi/double_type.hpp
+    krapi/enums.hpp
+    krapi/errors.hpp
+    krapi/invoker.hpp
+    krapi/message.hpp
+    krapi/tools.hpp
+    krapi/types.hpp
+    krapi/websocket.hpp
 )
 
 set(KRAPI_SOURCES
