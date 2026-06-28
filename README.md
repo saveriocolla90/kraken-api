@@ -68,6 +68,16 @@ cmake --build build -j
 ```
 See `examples/kraken-balance/` for a standalone example.
 
+# Install and consume in your project
+```sh
+cmake --install build
+```
+Find the package in your CMakeLists.txt
+```
+find_package(krapi CONFIG REQUIRED)
+target_link_libraries(Main PRIVATE krapi::krapi)
+```
+
 # Synchronous example
 ```cpp
 #include <krapi/api.hpp>
