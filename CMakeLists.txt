@@ -4,6 +4,7 @@ project(krapi VERSION 1.0.0 LANGUAGES CXX)
 # Options
 option(BUILD_SHARED_LIBS "Build shared library" ON)
 option(KRAPI_BUILD_EXAMPLE "Build example executable from main.cpp" OFF)
+option(KRAPI_BUILD_TESTS "Build unit tests" OFF)
 option(KRAPI_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 
 # C++ standard
@@ -129,4 +130,10 @@ if(KRAPI_BUILD_EXAMPLE)
   add_executable(krapi-cli main.cpp)
   target_link_libraries(krapi-cli PRIVATE krapi)
   target_compile_options(krapi-cli PRIVATE -Wall -Wextra -UNDEBUG)
+endif()
+
+# -------- Optional tests --------
+if(KRAPI_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
 endif()

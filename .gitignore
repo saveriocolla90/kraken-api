@@ -1,2 +1,4 @@
+.env
+tests/.env
 build*/
 .claude/

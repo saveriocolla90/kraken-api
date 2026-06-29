@@ -68,6 +68,36 @@ cmake --build build -j
 ```
 See `examples/kraken-balance/` for a standalone example.
 
+# Testing
+Tests live under `tests/` and are off by default. Enable them with
+`-DKRAPI_BUILD_TESTS=ON`; [doctest](https://github.com/doctest/doctest) is
+fetched automatically.
+```sh
+cmake -S . -B build -DKRAPI_BUILD_TESTS=ON
+cmake --build build -j
+```
+There are two suites, registered with CTest:
+
+- **`offline`** — parser tests that feed captured Kraken payloads
+  (`tests/fixtures/*.json`) into each `T::construct()` and assert the parsed
+  fields. No network or credentials. This is the default CI net.
+  ```sh
+  ctest --test-dir build -LE live --output-on-failure
+  ```
+- **`live`** — integration tests against `api.kraken.com`. Public endpoints run
+  whenever the network is reachable (and are skipped, not failed, otherwise).
+  Private endpoints run only when credentials are present and are **read-only or
+  validate-only** — they never place or cancel a real order.
+  ```sh
+  ctest --test-dir build -L live --output-on-failure
+  # or run the binary directly:
+  ./build/tests/krapi_tests_live
+  ```
+
+To exercise the private live tests, copy `tests/.env.example` to `tests/.env`
+(gitignored) and fill in your key/secret, or export `KRAKEN_API_KEY` /
+`KRAKEN_API_SECRET` in your shell. A read-only API key is sufficient.
+
 # Install and consume in your project
 ```sh
 cmake --install build
